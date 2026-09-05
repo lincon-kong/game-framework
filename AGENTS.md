@@ -36,7 +36,7 @@ Framework defines **how a game runs**. Game repositories define **what the game 
 - reusable **direct SpacetimeDB** helpers/source;
 - Framework-owned SpacetimeDB CLI/runtime tooling and version pinning;
 - Framework-owned Protobuf compiler/codegen dependencies and version pinning;
-- Framework-owned Luban distribution, dependencies, generation/validation/export tooling and version pinning;
+- Framework-owned Luban distribution/dependencies/generation tooling and version pinning;
 - native Rust server primitives only when a real game needs them.
 
 ## 5. Disallowed content
@@ -82,13 +82,16 @@ Framework `server/spacetime` may directly depend on SpacetimeDB. Concrete game t
 - SpacetimeDB generated bindings = direct client/database contract.
 - Protobuf = explicit independent runtime protocol where needed.
 - **Framework owns all toolchain dependencies and their versions.**
-- `tooling/toolchain.json` is the version authority for Luban, SpacetimeDB CLI and PB generation dependencies.
-- `tooling/bootstrap.mjs` installs/downloads Framework-owned external tool dependencies into the Framework tree.
+- `tooling/toolchain.json` is the version authority.
+- `tooling/install.mjs` installs the pinned toolchain **once per machine** into the user-level shared cache, default `~/.game-framework/tools`.
+- `GAME_FRAMEWORK_TOOL_HOME` may override that cache location.
+- Tool versions are installed side-by-side; do not overwrite old versions required by games pinned to older Framework commits.
+- `tooling/bootstrap.mjs` is compatibility-only and delegates to `install.mjs`.
 - Game repositories own only concrete `.proto`, Luban schemas/tables, SpacetimeDB business modules, and source/output paths in `game-tools.json`.
-- A game must not select its own Luban/protoc/SpacetimeDB CLI versions.
+- Generated TypeScript runtime packages are linked from the shared cache when required; do not run per-game installs for Framework-owned dependencies.
+- A game must not select its own Luban/protoc/SpacetimeDB CLI/SDK versions.
 - Never create separate client/server source copies of one schema when one source can generate both.
 - Generated output is never hand-edited.
-- Prefer the shared `game-tools.json` + Framework scripts over per-game duplicated generation scripts.
 
 ## 9. Compatibility
 
@@ -102,10 +105,15 @@ Framework `server/spacetime` may directly depend on SpacetimeDB. Concrete game t
 
 Keep focused contract tests for framework invariants and failure boundaries. High-value areas include lifecycle/disposal, routing/history, update scheduling, SpacetimeDB common guards, codegen compatibility and toolchain validation.
 
-The shared entry points are conceptually:
+Machine setup:
 
 ```bash
-node framework/tooling/bootstrap.mjs
+node framework/tooling/install.mjs
+```
+
+Per-game daily commands:
+
+```bash
 node framework/tooling/scripts/generate-all.mjs
 node framework/tooling/scripts/validate-all.mjs
 ```
@@ -118,6 +126,6 @@ Before adding a framework capability ask:
 2. Would it make sense for a different game?
 3. Can it avoid importing a concrete game?
 4. Is it tooling/common source rather than a duplicated game schema?
-5. Is a tool/compiler/CLI dependency being added? If yes, it belongs in Framework, not the game.
+5. Is a tool/compiler/CLI/SDK dependency being added? If yes, Framework owns its version and installation strategy.
 
 If not, keep it in the consuming game/application layer.
