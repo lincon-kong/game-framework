@@ -1,6 +1,7 @@
 import { mkdirSync, rmSync } from "node:fs";
 import { relative } from "node:path";
 import { cliValue, gamePath, hasFlag, loadGameConfig, requireSection, run } from "../lib/game-config.mjs";
+import { spacetimeExecutable } from "../lib/toolchain.mjs";
 
 const action = process.argv[2];
 if (!action || !["build", "generate", "publish", "dev"].includes(action)) {
@@ -16,10 +17,11 @@ try {
     process.exit(0);
   }
 
+  const spacetime = spacetimeExecutable();
   const modulePath = gamePath(gameRoot, section.modulePath ?? "server/spacetime");
 
   if (action === "build") {
-    run("spacetime", ["build", "--module-path", modulePath], { cwd: gameRoot });
+    run(spacetime, ["build", "--module-path", modulePath], { cwd: gameRoot });
   }
 
   if (action === "generate") {
@@ -29,7 +31,7 @@ try {
       const outDir = gamePath(gameRoot, output);
       rmSync(outDir, { recursive: true, force: true });
       mkdirSync(outDir, { recursive: true });
-      run("spacetime", [
+      run(spacetime, [
         "generate",
         "--lang", language,
         "--out-dir", outDir,
@@ -45,7 +47,7 @@ try {
     const args = ["publish", database, "--module-path", modulePath];
     if (server) args.push("--server", server);
     if (hasFlag("--yes")) args.push("--yes");
-    run("spacetime", args, { cwd: gameRoot });
+    run(spacetime, args, { cwd: gameRoot });
   }
 
   if (action === "dev") {
@@ -60,7 +62,7 @@ try {
       args.push("--module-bindings-path", relative(gameRoot, gamePath(gameRoot, tsOutput)));
     }
     if (server) args.push("--server", server);
-    run("spacetime", args, { cwd: gameRoot });
+    run(spacetime, args, { cwd: gameRoot });
   }
 } catch (error) {
   console.error(error.message);
