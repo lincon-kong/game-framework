@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, extname, join, resolve } from "node:path";
+import { delimiter, dirname, extname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import {
   lubanDll,
@@ -71,6 +71,22 @@ function packageVersion(packageRoot) {
 function semverMajor(value) {
   const match = `${value ?? ""}`.match(/(\d+)\./);
   return match ? Number(match[1]) : undefined;
+}
+
+function checkPlatform() {
+  const supported = new Set([
+    "darwin-arm64",
+    "darwin-x64",
+    "linux-arm64",
+    "linux-x64",
+    "win32-x64",
+  ]);
+  const key = platformKey();
+  if (supported.has(key)) {
+    add("OK", "platform", `${process.platform}/${process.arch} (${key})`);
+  } else {
+    add("ERROR", "platform", `${process.platform}/${process.arch} (${key})`, `Framework installer does not currently provide a SpacetimeDB CLI package for ${key}.`);
+  }
 }
 
 function checkBaseCommand(name, args, minimumMajor) {
@@ -141,6 +157,20 @@ function checkDotnet() {
   }
 }
 
+function checkNodePackage(name, expected) {
+  try {
+    const root = sharedNodePackage(name);
+    const actual = packageVersion(root);
+    if (actual !== expected) {
+      add("ERROR", `Node package ${name}`, `${actual ?? "unknown"}; expected ${expected}`, "Re-run Framework installer.");
+    } else {
+      add("OK", `Node package ${name}`, `${actual} @ ${root}`);
+    }
+  } catch (error) {
+    add("ERROR", `Node package ${name}`, error.message, "Run: node framework/tooling/install.mjs");
+  }
+}
+
 function checkInstalledTools() {
   try {
     const path = lubanDll();
@@ -167,27 +197,15 @@ function checkInstalledTools() {
     add("ERROR", "SpacetimeDB CLI", error.message, "Run: node framework/tooling/install.mjs");
   }
 
-  const expectedPackages = [
-    ["spacetimedb", toolchain.spacetime.typescriptSdkVersion],
-    ["@bufbuild/protobuf", toolchain.protobuf.bufbuildProtobuf],
-  ];
-  for (const [name, expected] of expectedPackages) {
-    try {
-      const root = sharedNodePackage(name);
-      const actual = packageVersion(root);
-      if (actual !== expected) {
-        add("ERROR", `Node package ${name}`, `${actual ?? "unknown"}; expected ${expected}`, "Re-run Framework installer.");
-      } else {
-        add("OK", `Node package ${name}`, `${actual} @ ${root}`);
-      }
-    } catch (error) {
-      add("ERROR", `Node package ${name}`, error.message, "Run: node framework/tooling/install.mjs");
-    }
-  }
+  checkNodePackage("spacetimedb", toolchain.spacetime.typescriptSdkVersion);
+  checkNodePackage("@bufbuild/protobuf", toolchain.protobuf.bufbuildProtobuf);
+  checkNodePackage("ts-proto", toolchain.protobuf.tsProto);
+  checkNodePackage("grpc-tools", toolchain.protobuf.grpcTools);
+  checkNodePackage("7zip-bin", toolchain.protobuf.sevenZipBin);
 
   const nodeBins = [
     ["PB protoc", "grpc_tools_node_protoc"],
-    ["ts-proto", "protoc-gen-ts_proto"],
+    ["ts-proto plugin", "protoc-gen-ts_proto"],
   ];
   for (const [label, name] of nodeBins) {
     try {
@@ -245,7 +263,7 @@ function checkPathConflicts() {
   }
 }
 
-add("OK", "platform", `${process.platform}/${process.arch} (${platformKey()})`);
+checkPlatform();
 checkWritableDirectory();
 checkBaseCommand("node", ["--version"], 18);
 checkBaseCommand(process.platform === "win32" ? "npm.cmd" : "npm", ["--version"]);
