@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { frameworkRoot, gamePath } from "../lib/game-config.mjs";
+import { gamePath } from "../lib/game-config.mjs";
+import { lubanDll } from "../lib/toolchain.mjs";
 
 export function loadLubanSource(gameRoot, section) {
   const configPath = gamePath(gameRoot, section.config ?? "data/luban.conf");
@@ -21,9 +22,5 @@ export function loadLubanSource(gameRoot, section) {
 }
 
 export function resolveLubanDll() {
-  const dll = resolve(frameworkRoot, "tooling", "luban", "Luban", "Luban.dll");
-  if (!existsSync(dll)) {
-    throw new Error(`Framework-owned Luban is missing: ${dll}. Install/vendor the pinned Luban distribution in game-framework/tooling/luban/Luban.`);
-  }
-  return dll;
+  return lubanDll();
 }
