@@ -40,10 +40,9 @@ game-framework/
 │
 ├── server/
 │   ├── spacetime/
-│   │   ├── runtime/
+│   │   ├── common/
 │   │   ├── session/
 │   │   ├── observability/
-│   │   ├── config/
 │   │   └── test-support/
 │   │
 │   ├── native/
@@ -54,11 +53,7 @@ game-framework/
 │   │       ├── session/
 │   │       ├── protocol/
 │   │       ├── observability/
-│   │       ├── config/
 │   │       └── test-support/
-│   │
-│   ├── persistence/
-│   │   └── postgres/      # optional, create only when needed
 │   └── README.md
 │
 ├── tooling/
@@ -80,15 +75,12 @@ Directories should be created when they contain real code/docs. Do not create la
 ## 2. Root files
 
 ### `README.md`
-
 Entry point and documentation index. Keep it concise.
 
 ### `AGENTS.md`
-
 Repository rules for humans, Codex and other automated contributors. It must point to the current architecture authority and explicitly define forbidden dependency directions/content.
 
 ### `docs/`
-
 Architecture authority and long-lived conventions. Do not use `docs/` as a dump for completed task logs or temporary implementation plans.
 
 ## 3. Client directories
@@ -97,7 +89,7 @@ Architecture authority and long-lived conventions. Do not use `docs/` as a dump 
 Owner/scope topology, resource registration/disposal and lifecycle state.
 
 ### `client/src/asset/`
-Generic asset load/release/cache contracts and adapters. No game asset IDs.
+Generic asset load/release/cache contracts and engine/platform integrations. No game asset IDs.
 
 ### `client/src/package/`
 Generic package definition/load/unload lifecycle. No concrete game package names.
@@ -130,10 +122,10 @@ Generic finite-state-machine primitives.
 Framework extension/module registration and dependency ordering.
 
 ### `client/src/network/`
-Transport, connection state, timeout, cancellation, retry/reconnect/heartbeat and codec hooks. No concrete game API methods/messages.
+Generic transport/connection primitives needed outside direct SpacetimeDB bindings, plus timeout/cancellation/retry/reconnect/heartbeat/codec hooks where relevant. No concrete game API methods/messages.
 
 ### `client/src/storage/`
-Storage adapters and migration-capable primitives. No game save schema.
+Storage primitives and migration-capable local persistence. No authoritative game save schema.
 
 ### `client/src/log/`
 Logging facade/context.
@@ -142,7 +134,7 @@ Logging facade/context.
 Crash/error reporting mechanisms.
 
 ### `client/src/perfdog/`
-Performance instrumentation hooks/adapters. Keep optional/platform-specific behavior isolated.
+Performance instrumentation hooks/integrations. Keep optional/platform-specific behavior isolated.
 
 ### `client/src/wasm/`
 Generic WASM loading/memory/call mechanisms. No game ABI semantics.
@@ -151,63 +143,56 @@ Generic WASM loading/memory/call mechanisms. No game ABI semantics.
 Framework error primitives and typed failure categories.
 
 ### `client/src/laya/`
-Everything that directly adapts framework contracts to LayaAir APIs. Engine-specific code should preferentially stay here instead of leaking across core modules.
+Everything that directly integrates framework mechanisms with LayaAir APIs. Engine-specific code should preferentially stay here instead of leaking across core modules.
 
 ### `client/tests/`
 Focused framework contract/invariant tests.
 
 ## 4. Server directories
 
-The server side has two main execution profiles plus optional persistence adapters.
-
 ### `server/spacetime/`
-Reusable SpacetimeDB-facing mechanisms for the default application-backend profile.
+Reusable helpers for the default **direct SpacetimeDB** backend model.
 
-#### `runtime/`
-Generic module/bootstrap conventions, common reducer/module lifecycle helpers and portable integration glue.
+Framework helpers here may directly depend on SpacetimeDB. There is no generic Adapter/Repository/Port layer between game backend code and SpacetimeDB.
+
+#### `common/`
+Small reusable SpacetimeDB-oriented helpers that have proven useful across games, such as common validation/time/version/error conventions.
+
+Do not turn this into a universal service layer.
 
 #### `session/`
-Reusable identity/session context abstractions that do not encode one game's login/business rules.
+Reusable identity/session primitives only when multiple games actually share them. Game-specific login/account semantics stay in each game repository.
 
 #### `observability/`
-Reusable logging/metrics/context integration for SpacetimeDB modules where supported.
-
-#### `config/`
-Runtime/module configuration helpers. Not game content configuration.
+Reusable logging/metrics/context conventions for SpacetimeDB modules where supported.
 
 #### `test-support/`
-Small reusable fixtures/helpers for framework-level SpacetimeDB integration tests.
+Small reusable fixtures/helpers for framework-level SpacetimeDB tests.
 
-Do not put concrete game tables, reducers, quests, economy or player state in `game-framework`; those belong to the game repository.
+Concrete game tables, reducers, services, quests, economy and player state do not belong here.
 
 ### `server/native/`
-Reusable native Rust server foundation for dedicated HTTP/service/realtime workloads.
+Reusable native Rust foundation for workloads that genuinely need a dedicated native process, especially realtime battle/world simulation.
 
 #### `crates/runtime/`
 Startup, shutdown, cancellation, task/service lifecycle, health/readiness and application-state composition.
 
 #### `crates/transport/`
-Axum/HTTP/WebSocket and future transport primitives/middleware.
+Axum/HTTP/WebSocket and future specialized transport primitives/middleware.
 
 #### `crates/session/`
-Generic connection/session context and lifecycle.
+Generic native connection/session context and lifecycle.
 
 #### `crates/protocol/`
-Generic Protobuf/prost integration, envelope/version helpers and runtime support.
+Generic Protobuf/prost integration and explicit protocol runtime support.
 
 #### `crates/observability/`
-Tracing, structured context and metrics adapters.
-
-#### `crates/config/`
-Native runtime service configuration parsing/validation.
+Tracing, structured context and metrics primitives.
 
 #### `crates/test-support/`
 Small reusable test helpers for native framework tests.
 
-### `server/persistence/postgres/`
-Optional PostgreSQL/SQLx integration when a concrete service chooses the conventional relational profile.
-
-Do not make this a mandatory dependency of the server framework.
+There is intentionally no baseline `server/persistence/adapter/repository` directory.
 
 ## 5. Tooling directories
 
@@ -231,36 +216,42 @@ game-repo/
 ├── framework/              # optional git submodule during current two-repo model
 ├── client/
 ├── server/
-│   ├── spacetime/          # concrete game tables/reducers/application backend
-│   └── native/             # dedicated battle/service code only when needed
+│   ├── spacetime/
+│   │   ├── src/
+│   │   │   ├── tables/
+│   │   │   ├── reducers/
+│   │   │   ├── services/
+│   │   │   └── jobs/
+│   │   └── Cargo.toml
+│   └── native/             # only when dedicated native runtime is actually needed
+│
 ├── shared/
-│   ├── core/               # game-specific Rust/domain core
-│   ├── protocol/           # concrete game Protobuf sources when needed
+│   ├── core/               # game-specific pure Rust GameCore/domain code when reusable across runtimes
+│   ├── protocol/           # concrete game Protobuf sources only for independent protocol boundaries
 │   └── luban/              # concrete game Luban sources
 ├── data/generated/         # if chosen by the game build
 ├── tools/
 └── docs/
 ```
 
-The exact game layout can evolve, but dependency rules must hold:
+Dependency rules:
 
 ```text
-client ----\
-            -> shared game contracts/domain
-server ----/
-
 client/server/shared -> framework
 framework -X-> game
 ```
 
-For the default backend profile, concrete SpacetimeDB tables/reducers live in the game repository, not in `game-framework`.
+For the normal backend path, game `server/spacetime` code directly uses SpacetimeDB APIs.
+
+Do not insert a database adapter/repository abstraction between them by default.
 
 ## 7. Placement checklist
 
 Before adding a file to this repository ask:
 
 1. Does it contain a concrete game's rules, IDs, tables, messages or feature semantics? If yes, keep it in the game repository.
-2. Is it a reusable runtime mechanism or adapter that can operate without knowing a concrete game? If yes, framework may own it.
-3. Is it engine/runtime-specific glue? Put it in the corresponding adapter area (`laya`, `spacetime`, `native`, etc.).
-4. Is it generated game content? Keep source and ownership in the game repository; framework may own only the generator tooling.
-5. Is the directory only being created because a diagram says it might exist later? Do not create it yet.
+2. Is it a reusable runtime mechanism that can operate without knowing a concrete game? If yes, framework may own it.
+3. Is it direct SpacetimeDB game backend logic? Keep concrete tables/reducers/services in the game repo; move only genuinely reusable helpers to `server/spacetime`.
+4. Is it generated game content? Keep source and ownership in the game repository; framework may own only generator tooling.
+5. Is someone proposing an Adapter/Repository/Port only to hide SpacetimeDB? Do not add it without a concrete requirement.
+6. Is the directory only being created because a diagram says it might exist later? Do not create it yet.
