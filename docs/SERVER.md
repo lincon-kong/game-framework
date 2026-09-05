@@ -2,321 +2,325 @@
 
 This document defines the reusable server-side architecture and technology baseline.
 
-## 1. Design goals
+## 1. Core decision
+
+The default backend is **SpacetimeDB directly**.
+
+Do not add an Adapter/Repository/Port layer merely to hide SpacetimeDB.
+
+For ordinary game backend work, game code may directly use:
+
+- SpacetimeDB tables;
+- reducers;
+- reducer context;
+- subscriptions;
+- transactions;
+- scheduled reducers;
+- generated client bindings.
+
+The goal is to keep the normal backend path short, explicit and easy to develop.
+
+```text
+Client
+  |
+  v
+SpacetimeDB generated bindings / subscriptions / reducers
+  |
+  v
+Game SpacetimeDB Module
+  ├── tables
+  ├── reducers
+  ├── services/domain logic
+  └── scheduled jobs
+```
+
+Do not wrap this path in a generic database abstraction unless a concrete future requirement proves that abstraction is needed.
+
+## 2. Design goals
 
 The server foundation must support:
 
 - small single-player/IAA games with online services;
-- account, inventory, progression, activity and leaderboard backends;
+- account, inventory, progression, activity, mail, season and leaderboard systems;
 - multiplayer roguelikes and room-based games;
-- authoritative native Rust battle servers;
-- future extraction/MMO-style services without forcing an early microservice design.
+- authoritative native Rust battle servers when required;
+- future extraction/MMO-style games without forcing unnecessary infrastructure today.
 
 Priorities:
 
-1. correctness and testability;
-2. simple deployment/operations;
-3. explicit dependency boundaries;
-4. high performance density;
-5. reuse across games;
-6. ability to split hot realtime paths later.
+1. development efficiency;
+2. correctness and testability;
+3. simple deployment and operations;
+4. explicit ownership of game state;
+5. Rust code reuse where it is genuinely useful;
+6. ability to split high-frequency realtime simulation later.
 
-## 2. Default backend strategy
-
-The default game backend profile is **SpacetimeDB-first**.
-
-For ordinary game/application state, prefer a Rust SpacetimeDB module before building a traditional HTTP + ORM + database stack.
-
-Typical responsibilities:
-
-- player/account mapping owned by the game;
-- inventory/equipment/state;
-- progression/economy;
-- quests/activities/mail/season data;
-- matchmaking/MMR metadata;
-- room/application state where the required tick/latency profile is appropriate;
-- authoritative settlement and transactional updates;
-- subscriptions for client-visible state.
-
-The framework must still remain database-agnostic at its domain boundaries. Game/domain crates must not depend directly on SpacetimeDB APIs unless they are explicitly SpacetimeDB adapter/module code.
-
-```text
-Game Domain / Application Ports
-          |
-          +--> SpacetimeDB adapter/module   [default application backend]
-          |
-          +--> Native Rust service         [when needed]
-          |
-          +--> PostgreSQL/other adapter    [optional alternative]
-```
-
-SpacetimeDB is the preferred first implementation for current games, not an irreversible dependency for every future game.
-
-## 3. Language and shared core
+## 3. Language
 
 Rust is the primary server language.
 
-Use Rust stable, edition 2024 for new native crates/modules where supported by the chosen toolchain.
+Use Rust stable and edition 2024 for new crates/modules where supported by the selected SpacetimeDB/native toolchain.
 
-Reasons:
+Rust is used for:
 
-- shared Rust domain/core code can be reused by client WASM, SpacetimeDB modules and native servers where platform constraints permit;
-- strong compile-time feedback works well with automated/AI-assisted development;
-- predictable memory/performance characteristics;
-- suitable for both ordinary backend logic and realtime simulation.
-
-Pure game/domain/core crates should stay deterministic and platform-independent where practical.
+- SpacetimeDB modules;
+- reusable pure game/domain/core code;
+- native realtime battle/world servers;
+- server-side tooling where appropriate.
 
 ## 4. SpacetimeDB application backend
 
-### Responsibilities
+SpacetimeDB directly owns ordinary persistent/application game state.
 
-SpacetimeDB is the default owner of persistent/application game state for games that fit the model.
+Typical tables include game-owned concepts such as:
 
-Use tables/reducers/subscriptions/transactions/scheduled reducers for application backend behavior.
+- player/account mapping;
+- inventory/equipment;
+- progression/economy;
+- quests/activities/mail/season;
+- matchmaking/MMR metadata;
+- room/application state;
+- settlement/result state.
 
-Keep the game/domain rules separate from SpacetimeDB glue when practical:
+These concrete tables and reducers belong to the **game repository**, not `game-framework`.
+
+A game module may be organized conceptually as:
 
 ```text
-spacetime module
-    |
-    +-- table/reducer/subscription adapters
-    |
-    v
-game application/domain/core
+server/spacetime/
+├── src/
+│   ├── lib.rs
+│   ├── tables/
+│   ├── reducers/
+│   ├── services/
+│   ├── jobs/
+│   └── error.rs
+└── Cargo.toml
 ```
 
-Do not put filesystem, arbitrary sockets, process-global runtime assumptions or native-server-only concerns into portable domain/core crates.
+### Direct-use rule
 
-### Protocol model
+Reducers and services may use SpacetimeDB APIs directly.
 
-For direct SpacetimeDB client interaction, use generated bindings/subscriptions/reducers as the transport contract provided by SpacetimeDB.
+Do not introduce abstractions such as:
 
-For native server/client RPC paths, use Protobuf where an explicit independent runtime protocol is needed.
+```text
+PlayerRepository
+InventoryRepository
+DatabaseAdapter
+SpacetimeAdapter
+PersistencePort
+```
 
-Do not force every SpacetimeDB interaction through a duplicate Protobuf RPC layer merely for consistency.
+just to make the code appear database-independent.
 
-### Data/config separation
+If repeated logic is pure game logic, extract that logic into a normal Rust module/crate. Do not hide the database itself.
 
-- SpacetimeDB tables: runtime/player/application state;
-- Luban: static game/content configuration;
-- Protobuf: explicit client/native-server or service-to-service protocol where needed;
-- environment/TOML/secret store: deployment/runtime configuration and secrets.
+### Pure GameCore exception
 
-## 5. Native Rust server profile
+Deterministic simulation/rules that need to run in multiple environments may remain platform-independent:
 
-Use a native Rust server when the game requires capabilities that do not fit the ordinary SpacetimeDB application backend well, especially high-frequency authoritative simulation.
+```text
+pure Rust GameCore
+     ↑        ↑
+     |        |
+SpacetimeDB   Client WASM / Native Battle Server
+```
 
-Baseline native stack:
+This separation exists for actual code reuse and deterministic execution, not to create a generic persistence adapter layer.
 
-- Tokio for async runtime;
+## 5. Client/server interaction
+
+For direct SpacetimeDB application-backend interaction, prefer the SpacetimeDB generated client bindings and native reducer/subscription model.
+
+```text
+Laya Client
+   |
+   v
+Generated SpacetimeDB bindings
+   |
+   ├── reducers
+   └── subscriptions
+   |
+   v
+SpacetimeDB Module
+```
+
+Do not duplicate every reducer/subscription call into Protobuf RPC.
+
+Use Protobuf only when there is an actual independent protocol boundary, for example:
+
+- client <-> native battle server;
+- native service <-> native service;
+- replay/input protocol that must be transport-independent;
+- external integration that benefits from an explicit PB contract.
+
+## 6. Configuration model
+
+Keep responsibilities clear:
+
+```text
+SpacetimeDB = runtime/player/application state
+Luban       = static game/content configuration
+Protobuf    = explicit native protocol when required
+Env/TOML    = deployment/runtime settings
+Secrets     = secret/environment storage
+```
+
+Concrete Luban tables remain in the game repository.
+
+## 7. Native Rust realtime server
+
+Do not introduce a native server merely because one might be needed later.
+
+Use it when SpacetimeDB is no longer the right execution environment for a concrete hot simulation workload, such as:
+
+- high-frequency authoritative tick simulation;
+- heavy AOI/state replication;
+- latency-sensitive competitive combat;
+- specialized UDP/QUIC transport;
+- rollback/lag compensation;
+- large world/battle simulation with independent scaling requirements.
+
+Recommended hybrid topology:
+
+```text
+             SpacetimeDB
+ account / inventory / quest / matchmaking
+                  |
+                  | create match / state
+                  v
+       Native Rust Battle/World Server
+       tick / simulation / AOI / replication
+                  |
+                  | validated result
+                  v
+             SpacetimeDB
+            settlement/state
+```
+
+Native baseline when it is actually needed:
+
+- Rust;
+- Tokio;
 - Axum for HTTP/WebSocket/admin/health endpoints where appropriate;
-- Protobuf + `prost` for explicit runtime protocols;
-- `tracing` / `tracing-subscriber` for structured observability;
-- Serde for runtime/admin configuration formats;
-- Docker/Compose as the default deployment unit.
+- Protobuf + prost for explicit protocols;
+- tracing/tracing-subscriber;
+- Docker/Compose.
 
-Do not force high-frequency battle simulation through ordinary HTTP handlers.
+Game simulation remains in the game repository.
 
-### Realtime split
+## 8. Framework server scope
 
-```text
-SpacetimeDB Application Backend
- account / inventory / quest / matchmaking / settlement
-                     |
-                     v
-          Native Rust Battle/World Server
-         tick / simulation / AOI / replication
-                     |
-                     v
-SpacetimeDB Application Backend
-         validated result / settlement
-```
+`game-framework` may provide reusable SpacetimeDB-oriented utilities only when real repetition appears, for example:
 
-The native server may reuse:
+- common validation/error helpers;
+- generic identity/session primitives;
+- reusable time/version helpers;
+- observability conventions;
+- test support;
+- build/code-generation tooling;
+- shared native realtime-server primitives.
 
-- session primitives;
-- transport abstractions;
-- observability;
-- runtime/configuration helpers;
-- common protocol tooling.
+These helpers may directly target SpacetimeDB. They do not need an abstraction layer pretending another backend is interchangeable.
 
-Game simulation itself stays in the concrete game repository.
+Framework must not contain:
 
-Start with WebSocket/TCP-friendly transports when sufficient. Add UDP/QUIC, rollback, lag compensation or specialized replication only when a concrete game requires them.
+- Bounce Ball tables/reducers;
+- game-specific inventory/economy semantics;
+- concrete quests/activities/mail logic;
+- game-specific protocol definitions;
+- game-specific Luban tables;
+- game-specific battle rules;
+- production secrets.
 
-## 6. Optional PostgreSQL profile
-
-PostgreSQL + SQLx is an **optional alternative**, not the default current backend.
-
-Use it when a game/service has a concrete reason, such as:
-
-- existing SQL/reporting/integration requirements;
-- topology/licensing/operations that make SpacetimeDB unsuitable;
-- platform/control-plane services that fit a conventional relational service better;
-- workloads that are operationally simpler in PostgreSQL.
-
-If used:
-
-- PostgreSQL is the authoritative relational store for that service;
-- SQLx is the preferred low-level Rust access/migration layer;
-- explicit SQL is preferred over a heavy ORM by default;
-- persistence types should not leak into portable domain/core code.
-
-Redis remains optional and should only be introduced for a concrete need such as ephemeral cache, rate state, coordination, queues/streams, ranking acceleration or presence.
-
-## 7. Architecture profiles
-
-### Profile A: ordinary game backend
-
-```text
-Client
-  |
-  v
-SpacetimeDB
-  |
-  v
-Game application/domain/core
-```
-
-Use this first for Bounce Ball and similar games unless a requirement proves it insufficient.
-
-### Profile B: hybrid realtime game
-
-```text
-Client
-  |\
-  | \--> SpacetimeDB application state
-  |
-  +----> Native Rust battle/world server
-                    |
-                    +--> SpacetimeDB settlement/state
-```
-
-Use for extraction/room/MMO-style hot simulation as required.
-
-### Profile C: conventional native service
-
-```text
-Client / Internal Service
-          |
-          v
-Rust Tokio/Axum Service
-          |
-          v
-PostgreSQL/SQLx
-```
-
-Use only when it is the better fit for that service.
-
-## 8. Suggested framework directory layout
+## 9. Suggested framework layout
 
 ```text
 server/
 ├── spacetime/
-│   ├── runtime/
+│   ├── common/
 │   ├── session/
 │   ├── observability/
-│   ├── config/
 │   └── test-support/
 │
 ├── native/
-│   ├── Cargo.toml
 │   └── crates/
 │       ├── runtime/
 │       ├── transport/
 │       ├── session/
 │       ├── protocol/
 │       ├── observability/
-│       ├── config/
 │       └── test-support/
 │
-└── persistence/
-    └── postgres/      # optional adapter, created only when actually needed
+└── README.md
 ```
 
-Do not create empty crates merely to match this tree. Add code when a real consumer requires the capability.
+Create these directories only when real code requires them.
 
-## 9. Ownership rules
+There is intentionally no generic `persistence/adapter/repository` layer in the baseline architecture.
 
-Framework may own reusable mechanisms such as:
+## 10. Game repository layout
 
-- generic SpacetimeDB module/bootstrap helpers;
-- portable session/context abstractions;
-- native transport/runtime primitives;
-- protocol generation/integration tooling;
-- observability/configuration mechanisms;
-- optional persistence adapters.
-
-Framework must not own:
-
-- Bounce Ball player/account tables;
-- Bounce Ball inventory/economy logic;
-- stage/battle/skill rules;
-- concrete game reducers/services/messages;
-- game-specific Luban tables/data;
-- production secrets.
-
-Concrete game application modules remain in the game repository.
-
-## 10. Dependency rules
-
-Preferred boundary:
+A game backend should look closer to this:
 
 ```text
-Framework/Platform Adapter
-        |
-        v
-Application Port
-        |
-        v
-Game Domain / GameCore
+game-repo/
+├── server/
+│   ├── spacetime/
+│   │   ├── tables/
+│   │   ├── reducers/
+│   │   ├── services/
+│   │   └── jobs/
+│   │
+│   └── native/          # only when required
+│
+├── shared/
+│   ├── core/            # reusable pure Rust GameCore/domain code
+│   ├── protocol/        # PB only for independent protocol boundaries
+│   └── luban/           # static game configuration
+│
+└── client/
 ```
 
-Portable domain/game-core crates should avoid direct dependencies on:
+## 11. Error handling
 
-- SpacetimeDB APIs;
-- Axum/Tokio runtime APIs unless specifically required;
-- SQLx;
-- filesystem/environment/process-global state.
+- game/domain errors remain typed where useful;
+- reducer entry points convert errors to stable client-visible results;
+- internal persistence/runtime details are not exposed to clients;
+- use `thiserror` for typed reusable errors where useful;
+- use `anyhow` mainly at tooling/bootstrap boundaries where typed recovery is unnecessary.
 
-Prefer explicit constructor/context dependency injection over global service locators.
-
-## 11. Error rules
-
-- domain errors remain typed;
-- adapters convert typed errors to reducer/RPC/HTTP results;
-- storage errors are translated at persistence/application boundaries;
-- `thiserror` is appropriate for typed library/domain errors;
-- `anyhow` may be used at executable/bootstrap/tool boundaries where typed recovery is not useful;
-- never expose raw persistence/internal errors to clients.
+Do not add an error-adapter hierarchy solely to preserve architectural layering.
 
 ## 12. Testing
 
-Framework server tests should focus on reusable invariants such as:
+SpacetimeDB backend tests should focus on real behavior:
 
-- reducer/adapter transaction assumptions;
-- session lifecycle;
-- native cancellation/shutdown behavior;
-- protocol decoding/error mapping;
-- compatibility boundaries;
-- concurrency invariants;
-- optional persistence adapter behavior.
+- reducer authorization/preconditions;
+- table state transitions;
+- economy/settlement atomicity;
+- scheduled reducer behavior;
+- idempotency where required;
+- deterministic GameCore behavior;
+- client binding/protocol compatibility at important boundaries.
 
-Game business tests belong in the game repository.
+Framework tests should cover only reusable framework invariants.
 
 ## 13. Deployment
 
-Preferred current deployment model:
+Current preferred deployment:
 
 ```text
 Internet
    |
-OpenResty / Nginx
+OpenResty / Nginx (when needed)
    |
-   +--> SpacetimeDB
+SpacetimeDB
    |
-   +--> Native Rust Server (only when needed)
+   +-- Native Rust Battle/World Server (only when needed)
 ```
 
-Use Docker/Compose and 1Panel where convenient. Do not require Kubernetes for initial games.
+Use self-hosted SpacetimeDB with Docker/systemd/1Panel-compatible deployment according to the concrete environment.
+
+Do not require Kubernetes or a traditional PostgreSQL/Redis backend stack for the initial architecture.
