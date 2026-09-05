@@ -26,9 +26,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err(format!("no .proto files found under {}", source.display()).into());
     }
 
+    let protoc = protoc_bin_vendored::protoc_bin_path()?;
+    let include = protoc_bin_vendored::include_path()?;
+
     let mut config = prost_build::Config::new();
     config.out_dir(&output);
     config.include_file("mod.rs");
-    config.compile_protos(&protos, &[source])?;
+    config.protoc_executable(protoc);
+    config.compile_protos(&protos, &[source, include])?;
     Ok(())
 }
