@@ -7,6 +7,8 @@
     "node": ">=18"
   },
   "scripts": {
-    "install-tools": "node install.mjs"
+    "install-tools": "node install.mjs",
+    "doctor": "node doctor.mjs",
+    "doctor:json": "node doctor.mjs --json"
   }
 }
