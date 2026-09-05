@@ -2,8 +2,11 @@
 
 Reusable client runtime primitives shared by game clients.
 
-The first migration target is the current Bounce Ball `client/framework` package. Migration should preserve its existing runtime semantics and validation behavior while removing Bounce Ball-specific naming and assumptions.
+Architecture authority: [`../docs/CLIENT.md`](../docs/CLIENT.md).
+Directory ownership: [`../docs/REPOSITORY_LAYOUT.md`](../docs/REPOSITORY_LAYOUT.md).
 
-Planned first-stage modules include lifecycle, asset, crash, entity, error, event, FSM, Laya adapters, logging, modules, network primitives, package loading, performance hooks, pooling, router, storage, timer, UI, update scheduling and WASM runtime support.
+The first migration target is the current Bounce Ball `client/framework` package. Migration must preserve its validated runtime semantics while removing Bounce Ball-specific naming and assumptions.
 
-Game-specific client code remains in each game repository.
+Target first-stage modules include lifecycle, asset, crash, entity, error, event, FSM, Laya adapters, logging, modules, network primitives, package loading, performance hooks, pooling, router, storage, timer, UI, update scheduling and WASM runtime support.
+
+Concrete game client code, routes, content, configuration and presentation stay in each game repository.
