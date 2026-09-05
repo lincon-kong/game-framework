@@ -4,7 +4,7 @@ Shared Luban validation and generation for all games.
 
 ## Ownership
 
-Framework owns the complete Luban tool distribution, runtime DLL dependencies, license, version and invocation scripts.
+Framework owns the Luban version, complete release distribution, runtime DLL dependencies, license and invocation scripts.
 
 Current baseline:
 
@@ -12,10 +12,18 @@ Current baseline:
 Luban 4.10.2
 ```
 
-Expected Framework layout after bootstrap/vendor sync:
+A game must not carry a second `tools/luban/Luban` distribution or choose a different Luban version.
+
+## Install once
+
+```bash
+node framework/tooling/install.mjs
+```
+
+The pinned Luban release is downloaded once and checksum-validated into:
 
 ```text
-framework/tooling/luban/
+~/.game-framework/tools/luban/4.10.2/
 ├── Luban/
 │   ├── Luban.dll
 │   ├── Luban.Core.dll
@@ -24,17 +32,14 @@ framework/tooling/luban/
 │   ├── Google.Protobuf.dll
 │   ├── ExcelDataReader.dll
 │   └── ... complete release dependencies
-├── LICENSE
-├── generate.mjs
-├── validate.mjs
-└── README.md
+└── LICENSE
 ```
 
-A game must not carry a second `tools/luban/Luban` distribution or choose a different Luban version.
+All games using this Framework baseline reuse that installation.
 
 ## Game source/output convention
 
-The first implementation follows BounceBall's proven convention:
+The initial convention follows BounceBall:
 
 ```text
 Game source
@@ -50,16 +55,15 @@ Generated
 
 One Luban source produces TypeScript readers, Rust readers and one shared binary data set.
 
-## Setup and commands
+## Commands
+
+From the game root:
 
 ```bash
-node framework/tooling/bootstrap.mjs
-
-cd <game-root>
 node framework/tooling/luban/validate.mjs
 node framework/tooling/luban/generate.mjs
 ```
 
-The game owns only `luban.conf`, spreadsheets/schema/content and generated game output. Tool/version/runtime dependencies stay in Framework.
+The game owns only `luban.conf`, spreadsheets/schema/content and generated game output. Tool/version/runtime dependencies are shared Framework-owned dependencies.
 
 Do not put concrete game tables in this directory.
