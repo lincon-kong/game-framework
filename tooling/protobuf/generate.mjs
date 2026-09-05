@@ -1,6 +1,10 @@
 import { mkdirSync, rmSync } from "node:fs";
 import { gamePath, loadGameConfig, requireSection, run } from "../lib/game-config.mjs";
-import { protobufNodeBin, protobufRustCodegenExecutable } from "../lib/toolchain.mjs";
+import {
+  ensureGameNodePackageLink,
+  protobufNodeBin,
+  protobufRustCodegenExecutable,
+} from "../lib/toolchain.mjs";
 import { listProtoFiles } from "./lib.mjs";
 
 try {
@@ -20,6 +24,7 @@ try {
 
   const typescriptOut = section.typescriptOut ? gamePath(gameRoot, section.typescriptOut) : undefined;
   if (typescriptOut) {
+    ensureGameNodePackageLink(gameRoot, "@bufbuild/protobuf");
     rmSync(typescriptOut, { recursive: true, force: true });
     mkdirSync(typescriptOut, { recursive: true });
     run(protoc, [
