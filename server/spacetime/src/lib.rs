@@ -5,7 +5,11 @@
 //! Concrete tables, reducers and game services belong to the consuming game.
 //! Game backend code may use SpacetimeDB directly; this crate is not an adapter,
 //! repository or persistence abstraction.
+//!
+//! The Framework owns the supported SpacetimeDB SDK baseline and re-exports it so
+//! consuming game code can prefer the Framework dependency surface where practical.
 
+pub use spacetimedb;
 use spacetimedb::{Identity, ReducerContext};
 
 /// Result type for small reusable reducer guards.
