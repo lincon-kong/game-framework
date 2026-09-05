@@ -4,85 +4,156 @@ This document defines how framework and game repositories are developed together
 
 ## 1. Current repository model
 
-Current stage:
-
 ```text
 game-framework.git
 bounce-ball.git
 ```
 
-Bounce Ball contains its own client/server/shared game code. The framework is the only cross-repository dependency.
-
-During current development, Bounce Ball may include `game-framework` as a Git submodule and compile framework source directly.
+BounceBall contains concrete game client/server/domain/config/protocol code. Framework is the only cross-repository dependency.
 
 ## 2. Local development model
 
-Recommended local layout:
+Recommended:
 
 ```text
 bounce-ball/
-├── framework/       # game-framework git submodule
+├── framework/       # game-framework Git submodule
+├── game-tools.json
 ├── client/
 ├── server/
-└── shared/
+├── shared/
+└── data/
 ```
 
-Development goal:
+Goal: **multi-repository in Git, monorepo-like in the local editor/build**.
 
-> Multi-repository in Git, monorepo-like in the local editor/build.
+Framework source should participate directly in the game build where practical. Do not require package publish/install/version-bump loops during normal framework development.
 
-Framework source should participate directly in the game build where practical. Do not require publish/install/version bump loops for every local framework edit.
+## 3. Submodule/version rule
 
-## 3. Submodule rule
-
-The parent game repository pins an exact framework commit.
+The game repository pins an exact framework commit:
 
 ```text
-Bounce Ball commit B
-        -> Framework commit F
+BounceBall commit B -> Framework commit F
 ```
 
-This relationship is the dependency map. Do not maintain a second manual version map unless future tooling has a clear operational need.
+That Git relationship is the dependency map. Do not maintain a second manual version map unless a future operational need justifies it.
 
-Do not configure released builds to automatically follow framework `main`/`master`.
+Released builds must never automatically follow Framework `main/master`.
 
 ## 4. Framework changes while developing a game
 
-If a game feature exposes a missing generic runtime capability:
-
 ```text
-1. decide whether capability is truly framework-level
-2. edit framework source directly
-3. validate against the game
-4. commit framework change independently
-5. update the game's framework submodule pointer
+1. decide whether the capability is truly framework-level
+2. edit Framework source directly
+3. validate it against the game
+4. commit Framework independently
+5. update the game's submodule pointer
 6. commit game integration
 ```
 
-Keep feature/refactor/bug-fix commits separable where practical so fixes can be reviewed or backported independently.
+Keep fixes/features/refactors separable where practical.
 
-## 5. Game changes that must not be promoted
+## 5. What stays game-owned
 
-Do not promote code simply because it might be useful later.
+Do not promote concrete game code merely because another game might reuse it later.
 
-Keep it in the game when it contains:
+Keep these in the game:
 
-- concrete game rules;
-- game-specific service semantics;
-- concrete PB messages/tables;
-- feature orchestration tied to one game;
+- game rules and feature orchestration;
+- concrete SpacetimeDB tables/reducers/services/jobs;
+- concrete PB messages;
+- concrete Luban schemas/tables/content;
 - presentation/UI;
-- game-specific WASM ABI or GameCore behavior.
+- game-specific WASM/GameCore ABI behavior.
 
-Extract only the stable mechanism when reuse is proven or clearly intrinsic to the runtime layer.
+Framework owns the reusable mechanism/tooling, not game semantics.
 
-## 6. Versioning
+## 6. Toolchain configuration
 
-While the framework is still being established, exact Git commits are sufficient.
+Each game owns root `game-tools.json`, based on:
 
-When the first game release stabilizes a framework baseline, start semantic tags/releases.
+```text
+framework/tooling/game-tools.example.json
+```
 
-Policy:
+It configures only paths/targets for:
+
+- SpacetimeDB module + generated bindings;
+- Luban config/tool/output root;
+- Protobuf source + TS/Rust outputs.
+
+This keeps tool implementation in Framework while concrete source remains game-owned.
+
+## 7. Generated code/data
+
+Generated output is never manually edited.
+
+```text
+SpacetimeDB module
+    -> spacetime generate
+    -> client bindings
+
+Luban schema/data
+    -> framework Luban generator
+    -> TypeScript readers + Rust readers + one shared binary data set
+
+.proto
+    -> framework PB generator
+    -> TypeScript + Rust
+```
+
+Do not create independent client/server schema copies.
+
+## 8. Daily generation/validation
+
+From the consuming game root:
+
+```bash
+node framework/tooling/scripts/generate-all.mjs
+node framework/tooling/scripts/validate-all.mjs
+```
+
+Disabled sections in `game-tools.json` are skipped.
+
+Individual commands remain available when a narrow iteration is faster:
+
+```bash
+node framework/tooling/luban/generate.mjs
+node framework/tooling/protobuf/generate.mjs
+node framework/tooling/spacetime/run.mjs generate
+node framework/tooling/spacetime/run.mjs build
+```
+
+Do not run unrelated heavyweight validation for every small change; release/integration validation must still cover the complete consumer path.
+
+## 9. SpacetimeDB development
+
+The normal backend path is direct SpacetimeDB.
+
+Use Framework common Rust helpers through a path dependency when useful, but game reducers/tables directly use SpacetimeDB APIs.
+
+Typical loop:
+
+```bash
+node framework/tooling/spacetime/run.mjs dev
+```
+
+or explicitly:
+
+```bash
+node framework/tooling/spacetime/run.mjs build
+node framework/tooling/spacetime/run.mjs generate
+node framework/tooling/spacetime/run.mjs publish
+```
+
+Do not insert Adapter/Repository/Port layers merely for backend interchangeability.
+
+## 10. Versioning
+
+While Framework is being established, exact Git commits are sufficient.
+
+Once a released game stabilizes a Framework baseline, use semantic tags:
 
 ```text
 PATCH  bug fix / behavior-preserving optimization
@@ -90,74 +161,44 @@ MINOR  backward-compatible capability
 MAJOR  intentional breaking contract/semantic change
 ```
 
-Avoid frequent major versions. Prefer long compatibility windows and additive APIs.
+Avoid frequent majors. A game does not need to upgrade simply because a newer Framework exists.
 
-A game does not need to upgrade merely because a newer framework version exists. Upgrade when the game needs a fix/capability or when normal maintenance justifies it.
+## 11. Branches
 
-## 7. Local branches
-
-Keep branch strategy simple during single-developer/high-velocity development.
-
-Recommended:
+Keep branch strategy simple during single-developer/high-velocity development:
 
 ```text
 main/master
 feature/*     when isolation is useful
 ```
 
-Do not introduce Git Flow, many release branches or complex LTS branches before real release/support pressure exists.
+Do not introduce full Git Flow/LTS branch matrices before actual release/support pressure exists.
 
-After multiple production games exist, at most the current major and previous supported major should normally receive active maintenance.
+## 12. CI/release model
 
-## 8. Generated code
+Released builds must be reproducible:
 
-Generated outputs are never manually edited.
+- parent game records exact Framework commit;
+- Cargo/npm dependencies use lockfiles where applicable;
+- CI checks out submodules at recorded commits;
+- codegen uses the Framework version pinned by that game;
+- runtime/config/protocol versions are recorded by the concrete game.
 
-```text
-.proto / Luban source
-      -> generator
-      -> TS/Rust/data artifacts
-```
-
-CI should be able to verify that generated outputs match their source when generated artifacts are committed.
-
-## 9. Validation
-
-Framework validation should eventually provide one top-level command per side plus an aggregate command, conceptually:
-
-```text
-validate-client
-validate-server
-validate-all
-```
-
-A consuming game should provide a full integration validation that can run:
+A typical game integration validation eventually becomes:
 
 ```text
 framework contracts
--> game PB/Luban generation/check
--> game core tests
--> server check/tests
+-> Luban source/generation check
+-> SpacetimeDB build + bindings check
+-> PB validation/generation when enabled
+-> GameCore tests
 -> WASM build when applicable
 -> client build/tests
 ```
 
-Do not require every framework change to trigger unrelated heavyweight validation when a narrower contract check is sufficient, but release/integration validation must cover the full consumer path.
+## 13. Future permission split
 
-## 10. CI/release model
-
-Local development may use direct source/submodule paths.
-
-Released builds must be reproducible:
-
-- parent repository records exact framework commit;
-- dependencies use lockfiles where applicable;
-- CI checks out submodules at recorded commits;
-- runtime/config/protocol versions used by a concrete game are recorded by that game, not by the generic framework.
-
-## 11. Future permission split
-
-If a future team requires client/server source visibility separation, the game repository may be split into:
+If a future team truly requires client/server read-permission separation, the game repository may later split into:
 
 ```text
 game-client.git
@@ -165,6 +206,6 @@ game-server.git
 game-shared.git
 ```
 
-`game-framework.git` can remain shared.
+`game-framework.git` remains shared.
 
-Do not pay this multi-repository coordination cost until the permission boundary is actually required. Preserve clean `client/`, `server/` and `shared/` dependency boundaries now so later splitting remains mechanical rather than architectural.
+Do not pay that coordination cost before the permission boundary is actually needed. Preserve clean client/server/shared ownership now so a later split is mechanical rather than architectural.
