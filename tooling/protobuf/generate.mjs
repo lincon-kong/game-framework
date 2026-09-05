@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { gamePath, loadGameConfig, requireSection, run, toolingRoot } from "../lib/game-config.mjs";
 import { listProtoFiles } from "./lib.mjs";
 
