@@ -1,7 +1,7 @@
 import { mkdirSync, rmSync } from "node:fs";
 import { relative } from "node:path";
 import { cliValue, gamePath, hasFlag, loadGameConfig, requireSection, run } from "../lib/game-config.mjs";
-import { spacetimeExecutable } from "../lib/toolchain.mjs";
+import { ensureGameNodePackageLink, spacetimeExecutable } from "../lib/toolchain.mjs";
 
 const action = process.argv[2];
 if (!action || !["build", "generate", "publish", "dev"].includes(action)) {
@@ -28,6 +28,7 @@ try {
     const bindings = section.bindings ?? {};
     for (const [language, output] of Object.entries(bindings)) {
       if (!output) continue;
+      if (language === "typescript") ensureGameNodePackageLink(gameRoot, "spacetimedb");
       const outDir = gamePath(gameRoot, output);
       rmSync(outDir, { recursive: true, force: true });
       mkdirSync(outDir, { recursive: true });
@@ -58,6 +59,7 @@ try {
     args.push("--project-path", gameRoot, "--module-path", modulePath);
     const tsOutput = section.bindings?.typescript;
     if (tsOutput) {
+      ensureGameNodePackageLink(gameRoot, "spacetimedb");
       args.push("--client-lang", "typescript");
       args.push("--module-bindings-path", relative(gameRoot, gamePath(gameRoot, tsOutput)));
     }
