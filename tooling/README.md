@@ -9,7 +9,7 @@ Shared build/code-generation toolchain used by all game repositories.
 ```text
 game-framework/
 └── tooling/
-    ├── toolchain.json          pinned tool versions
+    ├── toolchain.json          pinned tool/runtime versions
     ├── bootstrap.mjs           installs Framework-owned tools
     ├── package.json            Node/codegen dependencies
     ├── luban/                  Luban distribution + wrapper
@@ -22,22 +22,26 @@ A game must not carry its own Luban runtime, protoc, ts-proto, prost-build tool 
 
 ## Pinned baseline
 
-`tooling/toolchain.json` is the authority for external tool versions.
+`tooling/toolchain.json` is the authority for shared dependency versions.
 
 Current baseline:
 
 - Luban `4.10.2`;
-- SpacetimeDB CLI `2.10.0`;
+- SpacetimeDB CLI `2.8.3`;
+- SpacetimeDB Rust module SDK `2.8.3`;
+- SpacetimeDB TypeScript SDK `2.8.3`;
 - ts-proto `2.12.1`;
 - grpc-tools/protoc `1.13.1`;
 - prost-build `0.14.4`;
 - protoc-bin-vendored `3.2.0`.
 
+The SpacetimeDB baseline intentionally uses one aligned CLI/Rust/TypeScript version rather than automatically following the newest CLI release. Upgrade the complete baseline together after validation.
+
 Do not upgrade one consuming game independently. Upgrade Framework, validate against consumers, then move the game's Framework commit when desired.
 
 ## Bootstrap
 
-From the Framework tooling directory or from a consuming game submodule:
+From a consuming game with Framework checked out as `framework/`:
 
 ```bash
 node framework/tooling/bootstrap.mjs
@@ -68,6 +72,20 @@ It describes:
 - where game `.proto` source and generated TS/Rust files live.
 
 It does **not** select tool versions or point to game-local tool binaries.
+
+## Runtime dependency note
+
+Some generated/runtime code must still resolve its SDK through npm/Cargo during the consuming game's build. That is a packaging constraint, not ownership of the version.
+
+The rule is:
+
+```text
+Framework chooses/pins the SDK version
+Game build may physically resolve/install that dependency
+Game must not choose a different version
+```
+
+Where practical, Framework packages/scripts should expose or synchronize the pinned dependency so consumers do not manually maintain versions.
 
 ## Unified commands
 
