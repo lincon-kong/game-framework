@@ -21,11 +21,13 @@ Framework defines **how a game runs**. Each game repository defines **what that 
 game-framework/
 ├── client/              reusable TypeScript/Laya runtime
 ├── server/
-│   └── spacetime/       reusable direct SpacetimeDB Rust source
+│   └── spacetime/       reusable direct SpacetimeDB Rust source + SDK baseline
 ├── tooling/
-│   ├── spacetime/       build/dev/publish/bindings
-│   ├── luban/           validate/generate TS+Rust+binary
-│   ├── protobuf/        validate/generate TS+Rust
+│   ├── toolchain.json   shared dependency/version authority
+│   ├── bootstrap.mjs    prepares Framework-owned external tools
+│   ├── spacetime/       pinned CLI + build/dev/publish/bindings wrapper
+│   ├── luban/           full Luban distribution + generation tooling
+│   ├── protobuf/        Framework-owned PB compiler/codegen
 │   └── scripts/         generate-all / validate-all
 ├── docs/
 └── AGENTS.md
@@ -57,17 +59,48 @@ Configuration/protocol:
 - SpacetimeDB generated bindings = normal direct client/backend contract;
 - Protobuf = explicit independent protocol where needed.
 
-Framework owns generation/validation/export tooling. Concrete game Luban tables, `.proto` messages, SpacetimeDB tables/reducers and game rules stay in each game repository.
+Concrete game Luban tables, `.proto` messages, SpacetimeDB tables/reducers and game rules stay in each game repository.
+
+## Dependency ownership
+
+**Shared tooling/compiler/CLI/SDK version decisions belong to Framework, not individual games.**
+
+Framework owns and pins:
+
+- Luban distribution and runtime dependencies;
+- SpacetimeDB CLI baseline;
+- SpacetimeDB Rust/TypeScript SDK baseline;
+- protoc used by PB generation;
+- ts-proto;
+- prost-build/protoc-bin-vendored;
+- generation/validation scripts.
+
+The version authority is [`tooling/toolchain.json`](./tooling/toolchain.json).
+
+A game owns only concrete source and path configuration:
+
+```text
+SpacetimeDB module source
+.proto source
+Luban schemas/tables/content
+game-tools.json
+```
+
+A generated/runtime SDK may still physically appear in the game's npm/Cargo build graph when required by the language toolchain, but the game does not choose its version.
 
 ## Shared toolchain
 
 Each game owns a root `game-tools.json` based on [`tooling/game-tools.example.json`](./tooling/game-tools.example.json).
 
-From a game repository with Framework mounted at `framework/`:
+First prepare the Framework-owned toolchain:
 
 ```bash
-cd framework/tooling && npm install
-cd ../..
+node framework/tooling/bootstrap.mjs
+```
+
+Then from the game repository:
+
+```bash
 node framework/tooling/scripts/generate-all.mjs
 node framework/tooling/scripts/validate-all.mjs
 ```
@@ -81,6 +114,6 @@ game-framework.git
 bounce-ball.git
 ```
 
-During active development, BounceBall may compile Framework source directly through a Git submodule. A released game pins an exact Framework commit/tag for reproducibility.
+During active development, BounceBall may compile Framework source directly through a Git submodule. A released game pins an exact Framework commit/tag, which also pins its toolchain baseline.
 
-The current Luban tool convention is derived from BounceBall's proven single-source TS/Rust/binary generation model. BounceBall currently has no concrete PB schema, so the Framework defines PB generation tooling without inventing game messages.
+The current Luban convention is derived from BounceBall's proven single-source TS/Rust/binary generation model. BounceBall currently has no concrete PB schema, so Framework defines PB generation tooling without inventing game messages.
