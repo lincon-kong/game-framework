@@ -1,0 +1,25 @@
+{
+  "spacetime": {
+    "enabled": true,
+    "modulePath": "server/spacetime",
+    "database": "my-game",
+    "server": "local",
+    "bindings": {
+      "typescript": "client/generated/spacetime",
+      "rust": null
+    }
+  },
+  "luban": {
+    "enabled": true,
+    "config": "data/luban.conf",
+    "dll": "tools/luban/Luban/Luban.dll",
+    "target": "all",
+    "outputRoot": "data/generated"
+  },
+  "protobuf": {
+    "enabled": false,
+    "source": "shared/protocol",
+    "typescriptOut": "client/generated/protocol",
+    "rustOut": "shared/generated/protocol"
+  }
+}
