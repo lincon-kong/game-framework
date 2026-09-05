@@ -75,6 +75,8 @@ Framework owns and versions:
 ```text
 Luban distribution + all DLL/runtime dependencies
 SpacetimeDB CLI
+SpacetimeDB Rust module SDK baseline
+SpacetimeDB TypeScript SDK baseline
 protoc/compiler used by PB generation
 ts-proto
 prost-build
@@ -104,6 +106,8 @@ That file configures paths/targets only:
 - Protobuf source + TS/Rust outputs.
 
 It must not contain tool binary locations or tool versions.
+
+Some SDKs may still physically appear in the consuming game's npm/Cargo dependency graph because generated/runtime code needs them at build time. That does not make the game the version owner: Framework defines the exact supported version and game integration must consume that version.
 
 ## 7. First-time Framework toolchain setup
 
@@ -201,7 +205,7 @@ Example:
 ```text
 Framework F1
   Luban 4.10.2
-  SpacetimeDB 2.10.0
+  SpacetimeDB CLI/Rust/TS 2.8.3
   PB toolchain X
 
         |
@@ -209,12 +213,12 @@ Framework F1
         v
 
 Framework F2
-  newer tool versions
+  newer aligned tool versions
 ```
 
 An existing game remains on F1 until its submodule pointer is deliberately moved to F2.
 
-This prevents Game A and Game B from silently using different generator/CLI behavior while claiming to use the same Framework baseline.
+Prefer an internally aligned SpacetimeDB baseline over automatically taking the newest CLI when matching Rust/TypeScript SDK packages have not yet been validated together.
 
 ## 12. Framework versioning
 
@@ -248,7 +252,7 @@ Do not introduce full Git Flow/LTS branch matrices before actual release/support
 Released builds must be reproducible:
 
 - parent game records exact Framework commit;
-- Framework owns exact generator/CLI versions;
+- Framework owns exact generator/CLI/SDK baseline versions;
 - Cargo/npm dependencies use lockfiles where applicable;
 - CI checks out the recorded Framework submodule;
 - CI bootstraps/uses that pinned Framework toolchain;
