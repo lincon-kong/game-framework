@@ -1,19 +1,17 @@
 # Development and Versioning
 
-This document defines how framework and game repositories are developed together.
+This document defines how Framework and game repositories are developed together.
 
-## 1. Current repository model
+## 1. Repository model
 
 ```text
 game-framework.git
 bounce-ball.git
 ```
 
-BounceBall contains concrete game client/server/domain/config/protocol code. Framework is the only cross-repository dependency.
+BounceBall owns concrete game client/server/domain/config/protocol source. Framework is the only cross-repository dependency.
 
-## 2. Local development model
-
-Recommended:
+Recommended local shape:
 
 ```text
 bounce-ball/
@@ -27,34 +25,30 @@ bounce-ball/
 
 Goal: **multi-repository in Git, monorepo-like in the local editor/build**.
 
-Framework source should participate directly in the game build where practical. Do not require package publish/install/version-bump loops during normal framework development.
-
-## 3. Submodule/version rule
-
-The game repository pins an exact Framework commit:
+## 2. Framework commit is the dependency lock
 
 ```text
 BounceBall commit B -> Framework commit F
 ```
 
-That one pointer pins both Framework runtime source and the complete Framework toolchain baseline. Do not maintain a second manual dependency/version map.
+That pointer pins both Framework runtime source and the complete Framework toolchain baseline. Do not maintain a second manual dependency/version map.
 
 Released builds must never automatically follow Framework `main/master`.
 
-## 4. Framework changes while developing a game
+## 3. Framework changes while developing a game
 
 ```text
-1. decide whether the capability is truly framework-level
+1. decide whether capability is truly framework-level
 2. edit Framework source directly
 3. validate it against the game
 4. commit Framework independently
-5. update the game's submodule pointer
+5. update the game's Framework submodule pointer
 6. commit game integration
 ```
 
 Keep fixes/features/refactors separable where practical.
 
-## 5. What stays game-owned
+## 4. Game-owned content
 
 Keep these in the game:
 
@@ -64,71 +58,85 @@ Keep these in the game:
 - concrete Luban schemas/tables/content;
 - presentation/UI;
 - game-specific WASM/GameCore ABI behavior;
-- game-specific source/output paths in `game-tools.json`.
+- game-specific paths/targets in `game-tools.json`.
 
-Framework owns reusable runtime mechanisms **and all shared toolchain dependencies**.
+Framework owns reusable runtime mechanisms and the shared toolchain.
 
-## 6. Toolchain ownership
+## 5. Toolchain ownership
 
-Framework owns and versions:
+Framework owns and pins:
 
 ```text
-Luban distribution + all DLL/runtime dependencies
+Luban distribution/runtime dependencies
 SpacetimeDB CLI
 SpacetimeDB Rust module SDK baseline
 SpacetimeDB TypeScript SDK baseline
-protoc/compiler used by PB generation
-ts-proto
-prost-build
-protoc-bin-vendored
-archive/bootstrap dependencies
-all generate/validate scripts
+PB protoc/compiler
+ts-proto + TypeScript runtime
+prost-build + protoc-bin-vendored
+all generation/validation scripts
 ```
 
-The authority is:
+Version authority:
 
 ```text
 framework/tooling/toolchain.json
 ```
 
-A game must not choose or install its own Luban, protoc or SpacetimeDB CLI version.
+Games must not choose independent versions.
 
-The consuming game owns only root `game-tools.json`, based on:
+## 6. Install once per machine
+
+The Framework toolchain is **not installed into each project checkout**.
+
+Run once on a development machine:
+
+```bash
+node framework/tooling/install.mjs
+```
+
+Default shared cache:
+
+```text
+~/.game-framework/tools/
+├── luban/<version>/
+├── spacetime/<version>/<platform>/
+├── node/<version-set>/
+└── protobuf/rust/<version-set>/
+```
+
+Override when required:
+
+```text
+GAME_FRAMEWORK_TOOL_HOME=/custom/path
+```
+
+The installer is idempotent. A second game using the same Framework tool versions reuses the existing files and does not download/build them again.
+
+When Framework later pins new versions, they install side-by-side. An older game pinned to an older Framework commit can continue using its older cached tools.
+
+`bootstrap.mjs` is only a backward-compatible alias to `install.mjs`.
+
+## 7. Per-game setup is linking, not installation
+
+Each game owns only root `game-tools.json`, based on:
 
 ```text
 framework/tooling/game-tools.example.json
 ```
 
-That file configures paths/targets only:
+Generated TypeScript may require runtime npm packages. Framework installs those packages once into the shared cache.
 
-- SpacetimeDB module + generated binding output;
-- Luban config + generated output root;
-- Protobuf source + TS/Rust outputs.
-
-It must not contain tool binary locations or tool versions.
-
-Some SDKs may still physically appear in the consuming game's npm/Cargo dependency graph because generated/runtime code needs them at build time. That does not make the game the version owner: Framework defines the exact supported version and game integration must consume that version.
-
-## 7. First-time Framework toolchain setup
-
-After cloning/updating Framework:
-
-```bash
-node framework/tooling/bootstrap.mjs
-```
-
-Bootstrap prepares Framework-owned dependencies under the Framework tree, including:
+When generation needs them, Framework creates lightweight links under the game's ignored `node_modules`:
 
 ```text
-framework/tooling/node_modules/
-framework/tooling/luban/Luban/
-framework/tooling/luban/LICENSE
-framework/tooling/spacetime/bin/<platform>-<arch>/
+SpacetimeDB bindings -> shared spacetimedb runtime
+PB generated TS      -> shared @bufbuild/protobuf runtime
 ```
 
-PB TypeScript generation uses Framework `grpc-tools` + `ts-proto`; PB Rust generation uses Framework `prost-build` + `protoc-bin-vendored`.
+No `npm install` is required per game for those Framework-owned dependencies.
 
-The game repository does not own these dependencies.
+If a game already contains a conflicting version, generation must fail instead of silently drifting from the Framework baseline.
 
 ## 8. Generated code/data
 
@@ -136,15 +144,15 @@ Generated output is never manually edited.
 
 ```text
 SpacetimeDB game module
-    -> Framework-pinned spacetime CLI
+    -> shared Framework-pinned spacetime CLI
     -> client bindings
 
 Luban game schema/data
-    -> Framework-owned Luban
+    -> shared Framework-pinned Luban
     -> TypeScript readers + Rust readers + one shared binary data set
 
 Game .proto
-    -> Framework-owned PB toolchain
+    -> shared Framework PB toolchain
     -> TypeScript + Rust
 ```
 
@@ -159,8 +167,6 @@ node framework/tooling/scripts/generate-all.mjs
 node framework/tooling/scripts/validate-all.mjs
 ```
 
-Disabled sections in `game-tools.json` are skipped.
-
 Individual commands remain available:
 
 ```bash
@@ -170,13 +176,11 @@ node framework/tooling/spacetime/run.mjs generate
 node framework/tooling/spacetime/run.mjs build
 ```
 
-These commands must resolve compiler/CLI dependencies from Framework, not the game and not an arbitrary global PATH installation.
+These commands resolve Framework-owned tools from the shared cache, never from a game-local copy or arbitrary PATH version.
 
 ## 10. SpacetimeDB development
 
-The normal backend path is direct SpacetimeDB.
-
-Use Framework common Rust helpers through a path dependency when useful, but game reducers/tables directly use SpacetimeDB APIs.
+Normal backend path is direct SpacetimeDB.
 
 Typical loop:
 
@@ -184,7 +188,7 @@ Typical loop:
 node framework/tooling/spacetime/run.mjs dev
 ```
 
-or explicitly:
+or:
 
 ```bash
 node framework/tooling/spacetime/run.mjs build
@@ -192,7 +196,7 @@ node framework/tooling/spacetime/run.mjs generate
 node framework/tooling/spacetime/run.mjs publish
 ```
 
-All commands use the Framework-pinned SpacetimeDB CLI.
+Use Framework common Rust helpers through a path dependency where useful, while concrete game reducers/tables use SpacetimeDB directly.
 
 Do not insert Adapter/Repository/Port layers merely for backend interchangeability.
 
@@ -200,31 +204,23 @@ Do not insert Adapter/Repository/Port layers merely for backend interchangeabili
 
 Upgrade shared tools in Framework only.
 
-Example:
-
 ```text
 Framework F1
-  Luban 4.10.2
-  SpacetimeDB CLI/Rust/TS 2.8.3
-  PB toolchain X
-
-        |
-        | validate upgrade
-        v
+  -> old aligned toolchain
 
 Framework F2
-  newer aligned tool versions
+  -> validated newer aligned toolchain
 ```
 
-An existing game remains on F1 until its submodule pointer is deliberately moved to F2.
+A game remains on F1 until its Framework pointer is deliberately moved to F2.
 
-Prefer an internally aligned SpacetimeDB baseline over automatically taking the newest CLI when matching Rust/TypeScript SDK packages have not yet been validated together.
+Prefer an aligned SpacetimeDB CLI/Rust/TypeScript baseline over independently upgrading one component.
 
-## 12. Framework versioning
+## 12. Versioning
 
 While Framework is being established, exact Git commits are sufficient.
 
-Once a released game stabilizes a Framework baseline, use semantic tags:
+Once released games stabilize the baseline:
 
 ```text
 PATCH  bug fix / behavior-preserving optimization
@@ -232,54 +228,38 @@ MINOR  backward-compatible capability/toolchain update
 MAJOR  intentional breaking contract/semantic change
 ```
 
-A tool upgrade that changes generated/runtime contracts may require explicit migration even if the Framework API itself appears unchanged.
+A tool upgrade that changes generated/runtime contracts may require explicit migration even if Framework API surface looks unchanged.
 
-Avoid frequent majors. A game does not need to upgrade simply because a newer Framework exists.
-
-## 13. Branches
-
-Keep branch strategy simple during single-developer/high-velocity development:
-
-```text
-main/master
-feature/*     when isolation is useful
-```
-
-Do not introduce full Git Flow/LTS branch matrices before actual release/support pressure exists.
-
-## 14. CI/release model
+## 13. CI/release
 
 Released builds must be reproducible:
 
-- parent game records exact Framework commit;
-- Framework owns exact generator/CLI/SDK baseline versions;
-- Cargo/npm dependencies use lockfiles where applicable;
+- game records exact Framework commit;
+- Framework records exact tool/SDK versions and release checksums;
 - CI checks out the recorded Framework submodule;
-- CI bootstraps/uses that pinned Framework toolchain;
-- runtime/config/protocol versions are recorded by the concrete game where needed.
+- CI may use a persistent shared tool cache keyed by `toolchain.json`;
+- on a cache miss, CI runs `node framework/tooling/install.mjs` once;
+- generated/config/protocol outputs are validated against the pinned toolchain.
 
-A typical game integration validation becomes:
+A typical integration validation becomes:
 
 ```text
 Framework contracts/toolchain
--> Luban source/generation check
--> SpacetimeDB build + bindings check
+-> Luban source/generation
+-> SpacetimeDB build + bindings
 -> PB validation/generation when enabled
 -> GameCore tests
 -> WASM build when applicable
 -> client build/tests
 ```
 
-## 15. Future permission split
+## 14. Branches and future permission split
 
-If a future team truly requires client/server read-permission separation, the game repository may later split into:
+Keep branches simple during single-developer/high-velocity work:
 
 ```text
-game-client.git
-game-server.git
-game-shared.git
+main/master
+feature/* when useful
 ```
 
-`game-framework.git` remains shared and continues to own the common toolchain.
-
-Do not pay that coordination cost before the permission boundary is actually needed. Preserve clean client/server/shared ownership now so a later split is mechanical rather than architectural.
+If a future team requires client/server read-permission separation, the game may later split into `game-client.git`, `game-server.git`, and `game-shared.git`. `game-framework.git` remains shared and continues owning the common toolchain.
