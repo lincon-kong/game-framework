@@ -21,30 +21,28 @@ Framework defines **how a game runs**. Game repositories define **what the game 
 
 - Game repositories may depend on this repository.
 - This repository must never import or depend on Bounce Ball or any other concrete game.
-- Client framework core should avoid unnecessary Laya coupling; engine-specific code belongs under the Laya adapter boundary.
-- Server framework/domain-independent crates must not depend on concrete game domain crates.
-- Do not add code merely because one game might reuse it later. Prefer promotion after a capability is clearly generic or repeated usage proves reuse.
+- Client framework core should avoid unnecessary Laya coupling; engine-specific code belongs under the Laya boundary.
+- Do not add concrete game rules/tables/messages merely because another game might reuse them later.
 
 ## 4. Allowed content
 
 - lifecycle/resource ownership;
 - routing/package/loading primitives;
 - generic asset/UI/event/timer/update/pool mechanisms;
-- generic client/server transport primitives;
-- request/session/cancellation mechanisms;
+- generic network/runtime primitives;
 - logging/crash/observability primitives;
-- storage/persistence infrastructure;
-- WASM runtime adapters;
-- engine adapters;
-- generic Protobuf/Luban/build/codegen tooling;
-- generic server runtime/config/bootstrap/test-support primitives.
+- local storage and WASM runtime mechanisms;
+- Laya/engine integrations;
+- reusable **direct SpacetimeDB** helpers/source;
+- generic SpacetimeDB build/publish/bindings tooling;
+- generic Protobuf/Luban generation/validation/export tooling;
+- native Rust server primitives only when a real game needs them.
 
 ## 5. Disallowed content
 
 - concrete game rules or entities;
+- player/inventory/economy/quest/activity tables or reducers tied to a game;
 - battle/skill/buff/monster/stage logic tied to a game;
-- player progression/economy/quest/activity implementations tied to a game;
-- game-specific service endpoints/semantics;
 - concrete game Protobuf messages;
 - concrete game Luban tables/data;
 - game UI/content/assets;
@@ -57,35 +55,35 @@ Framework defines **how a game runs**. Game repositories define **what the game 
 - Parent disposal cascades to children; disposal must remain safe/idempotent.
 - Route history and route lifecycle are separate concerns.
 - Framework owns generic runtime mechanisms; game Controller/Model/View and presentation remain outside.
-- Fixed-step configuration belongs to the consuming game/application; do not hardcode one game's simulation policy into the generic framework.
-- Network code at this layer provides transport/session mechanics, not game backend methods.
+- Fixed-step configuration belongs to the consuming game/application.
+- Network code provides generic transport only where direct SpacetimeDB bindings are not the transport.
 - Do not bundle a duplicate Laya runtime into the framework package.
 
 ## 7. Server rules
 
 Baseline choices are defined in `docs/SERVER.md`:
 
-- Rust + Tokio + Axum;
-- Protobuf/prost;
-- PostgreSQL/SQLx;
-- Redis optional;
-- tracing-based observability;
-- Docker/Compose deployment.
+- Rust is the primary backend language;
+- ordinary game/application backend uses **SpacetimeDB directly**;
+- game tables/reducers/services may call SpacetimeDB APIs directly;
+- do **not** insert Adapter/Repository/Port layers merely to hide SpacetimeDB;
+- native Rust/Tokio/Axum is added only for dedicated service or high-frequency battle/world workloads;
+- Protobuf/prost is used only where an independent explicit protocol is needed;
+- PostgreSQL/Redis are not baseline dependencies.
 
-Server architecture is modular-monolith-first. Do not create microservices, queues, Redis dependencies, distributed locks or dedicated battle processes without a concrete requirement.
+Framework `server/spacetime` may directly depend on SpacetimeDB. Concrete game tables/reducers remain in the game repository.
 
-Keep pure domain/game-core code independent from Axum, SQLx, environment variables, filesystem and process-global runtime APIs where practical.
-
-SpacetimeDB is optional per game and must not become a mandatory framework dependency.
-
-## 8. Protocol/config rules
+## 8. Protocol/config/tooling rules
 
 - Luban = static game/content configuration.
-- Protobuf = runtime client/server contracts.
-- Framework may own generic tooling/runtime support.
-- Concrete tables/messages stay in the game repository.
-- Never create separate client/server source copies of the same game table/message when one shared schema can generate both.
+- SpacetimeDB tables = runtime/application state.
+- SpacetimeDB generated bindings = direct client/database contract.
+- Protobuf = explicit independent runtime protocol where needed.
+- Framework owns generators, validators, exporters and common tooling.
+- Game repositories own concrete `.proto`, Luban schemas/tables and SpacetimeDB business modules.
+- Never create separate client/server source copies of one schema when one source can generate both.
 - Generated output is never hand-edited.
+- Prefer the shared `game-tools.json` + framework scripts over per-game duplicated generation scripts.
 
 ## 9. Compatibility
 
@@ -97,26 +95,22 @@ SpacetimeDB is optional per game and must not become a mandatory framework depen
 
 ## 10. Validation
 
-Keep focused contract tests for framework invariants and failure boundaries. Avoid milestone-only or implementation-detail tests.
+Keep focused contract tests for framework invariants and failure boundaries. High-value areas include lifecycle/disposal, routing/history, update scheduling, SpacetimeDB common guards, codegen compatibility and toolchain validation.
 
-High-value areas include:
+The shared entry points are conceptually:
 
-- lifecycle/disposal;
-- package load/rollback;
-- routing/history;
-- update scheduling/cancellation;
-- transport/session lifecycle;
-- persistence transaction/error boundaries;
-- protocol/codegen compatibility;
-- startup/shutdown behavior.
+```bash
+node framework/tooling/scripts/generate-all.mjs
+node framework/tooling/scripts/validate-all.mjs
+```
 
 ## 11. Placement check
 
 Before adding a framework capability ask:
 
-1. Is it a technical mechanism rather than a concrete game rule?
+1. Is it a reusable technical mechanism rather than a concrete game rule?
 2. Would it make sense for a different game?
 3. Can it avoid importing a concrete game?
-4. Does it belong in an existing narrow module rather than a new global service?
+4. Is it tooling/common source rather than a duplicated game schema?
 
 If not, keep it in the consuming game/application layer.
