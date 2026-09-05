@@ -28,12 +28,12 @@ Allowed in the framework:
 - routing and UI runtime primitives;
 - events, timers, update scheduling and pools;
 - logging, crash reporting and observability;
-- generic network transport/RPC/session mechanisms;
-- storage abstractions;
-- WASM runtime/adapter mechanisms;
+- generic network/session mechanisms;
+- storage primitives used by the client;
+- WASM runtime mechanisms;
 - Laya engine adapters;
-- generic server runtime and backend adapter infrastructure;
-- generic SpacetimeDB/native-server integration mechanisms;
+- reusable SpacetimeDB-oriented server helpers;
+- reusable native realtime-server primitives;
 - generic Protobuf/Luban/code-generation tooling.
 
 Must remain in each game repository:
@@ -56,14 +56,12 @@ Rule of thumb:
 ```text
 Game Feature / Domain
         |
-Application / Platform Services
+Client Framework or SpacetimeDB/Native Runtime
         |
-Client or Server Framework
-        |
-Engine / OS / Network / Backend Runtime
+Engine / OS / Network / Database Runtime
 ```
 
-Framework code should stay at the lower mechanism layers. Authentication products, ads, payment, analytics, remote config and other commercial capabilities should not be pushed into a giant framework service locator. They may use framework primitives while remaining application/platform services unless they are proven generic runtime mechanisms.
+Do not insert abstraction layers merely to make technologies appear interchangeable. Use a layer only when it solves a real ownership, reuse, testing or runtime problem.
 
 ## 4. Client architecture
 
@@ -109,25 +107,33 @@ See `docs/CLIENT.md`.
 
 ## 5. Server architecture
 
-The default backend strategy is **SpacetimeDB-first** for ordinary game/application state, with native Rust servers added only when a concrete workload requires them.
+The default backend is **direct SpacetimeDB**.
 
 ```text
-Ordinary game backend
-
 Client
   |
   v
-SpacetimeDB
+SpacetimeDB generated bindings
   |
   v
-Game application/domain/core
+Game SpacetimeDB Module
+  ├── tables
+  ├── reducers
+  ├── services/domain logic
+  └── scheduled jobs
 ```
 
-For high-frequency authoritative simulation:
+Do not add a generic Adapter/Repository/Port layer between game backend code and SpacetimeDB merely to preserve database independence.
+
+Concrete game tables/reducers live in the game repository and may use SpacetimeDB APIs directly.
+
+Pure deterministic Rust GameCore/domain code may remain platform-independent when it must be reused by client WASM, SpacetimeDB and/or native realtime servers.
+
+For high-frequency authoritative simulation, add a native Rust server only when a real requirement appears:
 
 ```text
 SpacetimeDB
- account / inventory / quest / matchmaking / settlement
+ account / inventory / quest / matchmaking
             |
             v
 Native Rust Battle/World Server
@@ -138,20 +144,16 @@ SpacetimeDB
  validated result / settlement
 ```
 
-Primary server technology choices:
+Native baseline when needed:
 
-- Rust as the shared backend/domain language;
-- SpacetimeDB as the preferred first application backend for current games;
-- native Rust with Tokio/Axum when a dedicated service or realtime server is needed;
-- Protobuf/prost for explicit native client/server or service-to-service contracts;
-- PostgreSQL/SQLx only as an optional alternative adapter when a service has a concrete reason to use a conventional relational stack;
-- Redis only when a concrete cache/coordination/queue/presence use case exists;
-- `tracing`/`tracing-subscriber` as the native structured logging baseline;
-- Docker/Compose as the default deployment unit, compatible with 1Panel/OpenResty.
+- Rust;
+- Tokio;
+- Axum where HTTP/WebSocket/admin/health endpoints are useful;
+- Protobuf/prost for explicit independent protocols;
+- tracing/tracing-subscriber;
+- Docker/Compose.
 
-The framework must remain portable: pure game/domain/core crates should not directly depend on SpacetimeDB, Axum or SQLx unless they are explicit adapter/module layers.
-
-Do not split into microservices by default. SpacetimeDB application logic and native services should remain as few deployable units as practical until scaling or isolation creates a real reason to split.
+Do not introduce PostgreSQL/SQLx/Redis into the baseline architecture unless a concrete future service independently requires them.
 
 See `docs/SERVER.md`.
 
@@ -161,8 +163,8 @@ Keep these concerns separate:
 
 ```text
 Luban      = static game/content configuration
-Protobuf   = explicit runtime protocol when needed
-SpacetimeDB generated bindings = direct SpacetimeDB reducer/subscription contract
+SpacetimeDB generated bindings = ordinary client/backend reducer/subscription contract
+Protobuf   = explicit independent protocol when needed
 Runtime config = TOML/JSON/environment variables
 Secrets    = environment/secret storage
 ```
@@ -204,6 +206,7 @@ The framework repository owns only reusable technical mechanisms.
 - Keep bug fixes independently reviewable/backportable where practical.
 - Avoid frequent major versions.
 - Do not create empty architecture layers before a real consumer requires them.
+- Do not add Adapter/Repository layers without a concrete need.
 
 ## 9. Architecture authority
 
