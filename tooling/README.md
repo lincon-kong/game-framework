@@ -23,19 +23,9 @@ Default shared install root:
 ```text
 ~/.game-framework/tools/
 ├── luban/<version>/
-│   ├── Luban/
-│   └── LICENSE
 ├── spacetime/<version>/<platform>/
-│   └── spacetime[.exe]
 ├── node/<version-set>/
-│   └── node_modules/
-│       ├── spacetimedb
-│       ├── @bufbuild/protobuf
-│       ├── ts-proto
-│       ├── grpc-tools
-│       └── 7zip-bin
 └── protobuf/rust/<version-set>/
-    └── bin/game-framework-protobuf-rust-codegen[.exe]
 ```
 
 Override the root only when needed:
@@ -44,9 +34,41 @@ Override the root only when needed:
 GAME_FRAMEWORK_TOOL_HOME=/custom/path
 ```
 
-The installer is idempotent. If the pinned version is already present, it is reused. When a future Framework version pins newer tools, the new versions are installed side-by-side, so older games can keep using the toolchain pinned by their Framework commit.
+The installer is idempotent. If the pinned version is already present, it is reused. New Framework tool versions install side-by-side so older games can keep using the baseline pinned by their Framework commit.
 
 `bootstrap.mjs` remains only as a compatibility alias to `install.mjs`.
+
+## Doctor
+
+After first install, after changing machines, after updating Framework, or when CI/tooling behaves unexpectedly, run:
+
+```bash
+node framework/tooling/doctor.mjs
+```
+
+CI/machine-readable mode:
+
+```bash
+node framework/tooling/doctor.mjs --json
+```
+
+Doctor checks:
+
+- supported OS/CPU architecture;
+- shared tool-home read/write access;
+- Node >= 18 and npm;
+- .NET plus Microsoft.NETCore.App 8.x for Luban;
+- Rust/rustc and Cargo;
+- Windows directory junction or macOS/Linux symlink capability;
+- important environment overrides such as `DOTNET_ROOT`, `RUSTUP_TOOLCHAIN`, `NODE_OPTIONS` and `GAME_FRAMEWORK_TOOL_HOME`;
+- global `spacetime` / `protoc` copies on PATH and explains that Framework uses absolute paths instead;
+- installed Luban version;
+- installed SpacetimeDB CLI version;
+- shared SpacetimeDB/Protobuf TypeScript packages and exact versions;
+- Framework PB protoc/ts-proto binaries;
+- compiled Framework Rust PB generator.
+
+Doctor exits non-zero when an ERROR exists and prints `Framework Toolchain: READY` only when all required checks pass. WARN/INFO items do not fail CI by themselves.
 
 ## Current pinned baseline
 
