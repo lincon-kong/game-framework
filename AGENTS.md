@@ -37,6 +37,7 @@ Framework defines **how a game runs**. Game repositories define **what the game 
 - Framework-owned SpacetimeDB CLI/runtime tooling and version pinning;
 - Framework-owned Protobuf compiler/codegen dependencies and version pinning;
 - Framework-owned Luban distribution/dependencies/generation tooling and version pinning;
+- machine-level installer/doctor tooling for the shared Framework toolchain;
 - native Rust server primitives only when a real game needs them.
 
 ## 5. Disallowed content
@@ -87,6 +88,8 @@ Framework `server/spacetime` may directly depend on SpacetimeDB. Concrete game t
 - `GAME_FRAMEWORK_TOOL_HOME` may override that cache location.
 - Tool versions are installed side-by-side; do not overwrite old versions required by games pinned to older Framework commits.
 - `tooling/bootstrap.mjs` is compatibility-only and delegates to `install.mjs`.
+- `tooling/doctor.mjs` is the authoritative machine/toolchain readiness check. It must remain cross-platform and return non-zero on required-environment/tool failures.
+- Doctor should distinguish harmless global PATH copies from actual Framework resolution; Framework-owned Luban/SpacetimeDB/PB tools must use absolute/shared-cache paths rather than arbitrary PATH versions.
 - Game repositories own only concrete `.proto`, Luban schemas/tables, SpacetimeDB business modules, and source/output paths in `game-tools.json`.
 - Generated TypeScript runtime packages are linked from the shared cache when required; do not run per-game installs for Framework-owned dependencies.
 - A game must not select its own Luban/protoc/SpacetimeDB CLI/SDK versions.
@@ -105,10 +108,17 @@ Framework `server/spacetime` may directly depend on SpacetimeDB. Concrete game t
 
 Keep focused contract tests for framework invariants and failure boundaries. High-value areas include lifecycle/disposal, routing/history, update scheduling, SpacetimeDB common guards, codegen compatibility and toolchain validation.
 
-Machine setup:
+Machine setup/readiness:
 
 ```bash
 node framework/tooling/install.mjs
+node framework/tooling/doctor.mjs
+```
+
+CI-readable doctor mode:
+
+```bash
+node framework/tooling/doctor.mjs --json
 ```
 
 Per-game daily commands:
