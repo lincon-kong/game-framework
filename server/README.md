@@ -1,10 +1,18 @@
 # Server Framework
 
-Reusable native Rust server foundation.
+Reusable Rust server foundation.
 
 Architecture and technology authority: [`../docs/SERVER.md`](../docs/SERVER.md).
 Directory ownership: [`../docs/REPOSITORY_LAYOUT.md`](../docs/REPOSITORY_LAYOUT.md).
 
-The server framework is intentionally not implemented as a large empty skeleton. Add crates only when real game/server work requires them, following the documented baseline: Rust, Tokio, Axum, Protobuf/prost, PostgreSQL/SQLx, optional Redis, tracing and Docker/Compose deployment.
+Current backend strategy:
 
-Concrete game services and game domain logic stay in each game repository.
+- SpacetimeDB-first for ordinary game/application backend state;
+- native Rust server foundation for dedicated service and high-frequency realtime workloads;
+- PostgreSQL/SQLx only as an optional alternative adapter when a concrete service requires it;
+- Redis optional and introduced only for a real cache/coordination/queue/presence requirement;
+- Docker/Compose as the default deployment unit.
+
+Do not create a large empty server skeleton. Add reusable framework mechanisms only when real game/server work requires them.
+
+Concrete game tables, reducers, services and domain logic stay in each game repository.
