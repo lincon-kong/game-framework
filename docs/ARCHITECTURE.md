@@ -4,7 +4,7 @@ This document is the architecture authority for `game-framework`.
 
 ## 1. Purpose
 
-`game-framework` provides reusable technical infrastructure for multiple games. It owns mechanisms, not game rules.
+`game-framework` provides reusable technical infrastructure and a shared toolchain for multiple games. It owns mechanisms and shared dependency baselines, not game rules.
 
 ```text
 Game repositories
@@ -14,14 +14,14 @@ game-framework
       |
       +-- client runtime foundation
       +-- server runtime foundation
-      +-- shared tooling
+      +-- shared toolchain + dependency versions
 ```
 
-Dependency direction is one-way: games may depend on the framework; the framework must never depend on a concrete game.
+Dependency direction is one-way: games may depend on Framework; Framework must never depend on a concrete game.
 
 ## 2. Repository boundary
 
-Allowed in the framework:
+Allowed/owned in Framework:
 
 - lifecycle and ownership primitives;
 - package/resource loading;
@@ -34,7 +34,10 @@ Allowed in the framework:
 - Laya engine adapters;
 - reusable SpacetimeDB-oriented server helpers;
 - reusable native realtime-server primitives;
-- generic Protobuf/Luban/code-generation tooling.
+- Luban distribution and generation tooling;
+- SpacetimeDB CLI and supported SDK baseline;
+- Protobuf compiler/codegen dependencies and tooling;
+- version pinning/bootstrap/validation for shared tool dependencies.
 
 Must remain in each game repository:
 
@@ -42,14 +45,15 @@ Must remain in each game repository:
 - concrete entities, skills, buffs, monsters, stages and combat logic;
 - player progression, economy, quests, activities and game-specific services;
 - concrete game Protobuf messages;
-- concrete game Luban tables and generated game data;
+- concrete game Luban schemas/tables/content and generated game data;
 - concrete SpacetimeDB tables/reducers owned by that game;
 - game UI, assets and presentation;
+- game-specific source/output path configuration;
 - secrets and environment-specific production configuration.
 
 Rule of thumb:
 
-> Framework defines **how a game runs**. A game repository defines **what that game is**.
+> Framework defines **how a game runs and which shared toolchain it runs with**. A game repository defines **what that game is**.
 
 ## 3. Logical layers
 
@@ -57,6 +61,8 @@ Rule of thumb:
 Game Feature / Domain
         |
 Client Framework or SpacetimeDB/Native Runtime
+        |
+Framework-owned dependency/tool baseline
         |
 Engine / OS / Network / Database Runtime
 ```
@@ -101,7 +107,7 @@ WASM runtime
 Laya adapters
 ```
 
-The framework owns runtime mechanisms and route/lifecycle topology. Game code owns Controller/Model/View, business state, presentation and game rules.
+Framework owns runtime mechanisms and route/lifecycle topology. Game code owns Controller/Model/View, business state, presentation and game rules.
 
 See `docs/CLIENT.md`.
 
@@ -126,6 +132,8 @@ Game SpacetimeDB Module
 Do not add a generic Adapter/Repository/Port layer between game backend code and SpacetimeDB merely to preserve database independence.
 
 Concrete game tables/reducers live in the game repository and may use SpacetimeDB APIs directly.
+
+Framework owns the supported SpacetimeDB CLI/Rust SDK/TypeScript SDK baseline. A consuming game may physically resolve an SDK in npm/Cargo when required by generated code or compiler behavior, but it does not own the version decision.
 
 Pure deterministic Rust GameCore/domain code may remain platform-independent when it must be reused by client WASM, SpacetimeDB and/or native realtime servers.
 
@@ -157,9 +165,9 @@ Do not introduce PostgreSQL/SQLx/Redis into the baseline architecture unless a c
 
 See `docs/SERVER.md`.
 
-## 6. Protocol and configuration
+## 6. Protocol, configuration and tool ownership
 
-Keep these concerns separate:
+Keep concerns separate:
 
 ```text
 Luban      = static game/content configuration
@@ -167,6 +175,21 @@ SpacetimeDB generated bindings = ordinary client/backend reducer/subscription co
 Protobuf   = explicit independent protocol when needed
 Runtime config = TOML/JSON/environment variables
 Secrets    = environment/secret storage
+```
+
+Source ownership:
+
+```text
+Game owns:
+  Luban schemas/tables/content
+  concrete .proto
+  concrete SpacetimeDB module
+
+Framework owns:
+  Luban executable/runtime dependencies
+  PB compiler/codegen dependencies
+  SpacetimeDB CLI/SDK baseline
+  generate/validate/bootstrap tooling
 ```
 
 Concrete game PB schemas and Luban tables live in the game repository, not in `game-framework`.
@@ -182,7 +205,9 @@ game-framework.git
 bounce-ball.git
 ```
 
-During active development, a game may compile framework source directly, including through a Git submodule. A released game pins an exact framework commit/tag so historical builds remain reproducible.
+During active development, a game may compile Framework source directly, including through a Git submodule. A released game pins an exact Framework commit/tag so historical builds remain reproducible.
+
+That one Framework pointer pins both runtime source and the shared toolchain/dependency baseline.
 
 The game repository owns:
 
@@ -192,17 +217,20 @@ server/
 shared/
   core/
   protocol/
-  luban/
+data/
+  Datas/
+  luban.conf
 ```
 
-The framework repository owns only reusable technical mechanisms.
+Framework owns reusable technical mechanisms and shared dependency/toolchain baselines.
 
 ## 8. Evolution rules
 
-- Prefer additive, backward-compatible framework changes.
+- Prefer additive, backward-compatible Framework changes.
 - Existing behavior must not change silently.
 - Do not promote game code merely because it might be reused later.
 - Extract a capability when it is demonstrably generic or intrinsic to the runtime layer.
+- Shared compiler/CLI/SDK versions are upgraded in Framework only, then validated before consumers move.
 - Keep bug fixes independently reviewable/backportable where practical.
 - Avoid frequent major versions.
 - Do not create empty architecture layers before a real consumer requires them.
@@ -218,5 +246,3 @@ For this repository, use this order:
 4. `docs/REPOSITORY_LAYOUT.md`;
 5. `docs/DEVELOPMENT.md`;
 6. current source/build/test guards.
-
-Old plans, closed issues, milestone notes and historical discussions are not current architecture authority unless historical analysis is explicitly requested.
