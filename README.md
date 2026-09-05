@@ -25,6 +25,7 @@ game-framework/
 ├── tooling/
 │   ├── toolchain.json   shared dependency/version authority
 │   ├── install.mjs      one-time machine-level tool installer
+│   ├── doctor.mjs       cross-platform environment/toolchain diagnosis
 │   ├── spacetime/       build/dev/publish/bindings wrapper
 │   ├── luban/           generation/validation wrapper
 │   ├── protobuf/        PB validation/codegen source
@@ -92,6 +93,7 @@ With any Framework checkout available, run once:
 
 ```bash
 node framework/tooling/install.mjs
+node framework/tooling/doctor.mjs
 ```
 
 Default shared location:
@@ -102,7 +104,15 @@ Default shared location:
 
 All games on that machine reuse the same versioned tool cache. When Framework later pins a new tool version, it is installed side-by-side rather than replacing versions still needed by older games.
 
-Generated TypeScript runtime packages are also stored centrally. Generation creates lightweight project links when required; it does not run a fresh package install for each game.
+`doctor.mjs` verifies the current OS/CPU, Node/npm, .NET 8, Rust/Cargo, filesystem linking capability, relevant environment overrides, PATH copies of `spacetime`/`protoc`, and all Framework-installed tool versions. It returns non-zero when the machine is not ready.
+
+For CI:
+
+```bash
+node framework/tooling/doctor.mjs --json
+```
+
+Generated TypeScript runtime packages are stored centrally. Generation creates lightweight project links when required; it does not run a fresh package install for each game.
 
 ## Per-game commands
 
