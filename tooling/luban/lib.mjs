@@ -20,15 +20,10 @@ export function loadLubanSource(gameRoot, section) {
   return { configPath, config };
 }
 
-export function resolveLubanDll(gameRoot, section) {
-  const candidates = [
-    section.dll ? gamePath(gameRoot, section.dll) : undefined,
-    resolve(frameworkRoot, "tooling", "luban", "Luban", "Luban.dll"),
-    resolve(gameRoot, "tools", "luban", "Luban", "Luban.dll"),
-  ].filter(Boolean);
-  const found = candidates.find(existsSync);
-  if (!found) {
-    throw new Error(`Luban.dll not found. Checked:\n${candidates.map(x => `- ${x}`).join("\n")}`);
+export function resolveLubanDll() {
+  const dll = resolve(frameworkRoot, "tooling", "luban", "Luban", "Luban.dll");
+  if (!existsSync(dll)) {
+    throw new Error(`Framework-owned Luban is missing: ${dll}. Install/vendor the pinned Luban distribution in game-framework/tooling/luban/Luban.`);
   }
-  return found;
+  return dll;
 }
