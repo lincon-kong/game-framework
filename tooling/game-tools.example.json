@@ -12,7 +12,6 @@
   "luban": {
     "enabled": true,
     "config": "data/luban.conf",
-    "dll": "tools/luban/Luban/Luban.dll",
     "target": "all",
     "outputRoot": "data/generated"
   },
