@@ -21,6 +21,7 @@
     "tsProto": "2.12.1",
     "grpcTools": "1.13.1",
     "sevenZipBin": "5.2.0",
+    "bufbuildProtobuf": "2.10.2",
     "prostBuild": "0.14.4",
     "protocBinVendored": "3.2.0"
   }
