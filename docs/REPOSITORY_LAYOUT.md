@@ -39,16 +39,26 @@ game-framework/
 │   └── README.md
 │
 ├── server/
-│   ├── Cargo.toml
-│   ├── crates/
+│   ├── spacetime/
 │   │   ├── runtime/
-│   │   ├── transport/
 │   │   ├── session/
-│   │   ├── protocol/
-│   │   ├── persistence/
 │   │   ├── observability/
 │   │   ├── config/
 │   │   └── test-support/
+│   │
+│   ├── native/
+│   │   ├── Cargo.toml
+│   │   └── crates/
+│   │       ├── runtime/
+│   │       ├── transport/
+│   │       ├── session/
+│   │       ├── protocol/
+│   │       ├── observability/
+│   │       ├── config/
+│   │       └── test-support/
+│   │
+│   ├── persistence/
+│   │   └── postgres/      # optional, create only when needed
 │   └── README.md
 │
 ├── tooling/
@@ -148,29 +158,56 @@ Focused framework contract/invariant tests.
 
 ## 4. Server directories
 
-### `server/crates/runtime/`
+The server side has two main execution profiles plus optional persistence adapters.
+
+### `server/spacetime/`
+Reusable SpacetimeDB-facing mechanisms for the default application-backend profile.
+
+#### `runtime/`
+Generic module/bootstrap conventions, common reducer/module lifecycle helpers and portable integration glue.
+
+#### `session/`
+Reusable identity/session context abstractions that do not encode one game's login/business rules.
+
+#### `observability/`
+Reusable logging/metrics/context integration for SpacetimeDB modules where supported.
+
+#### `config/`
+Runtime/module configuration helpers. Not game content configuration.
+
+#### `test-support/`
+Small reusable fixtures/helpers for framework-level SpacetimeDB integration tests.
+
+Do not put concrete game tables, reducers, quests, economy or player state in `game-framework`; those belong to the game repository.
+
+### `server/native/`
+Reusable native Rust server foundation for dedicated HTTP/service/realtime workloads.
+
+#### `crates/runtime/`
 Startup, shutdown, cancellation, task/service lifecycle, health/readiness and application-state composition.
 
-### `server/crates/transport/`
-Axum/HTTP/WebSocket transport and middleware primitives.
+#### `crates/transport/`
+Axum/HTTP/WebSocket and future transport primitives/middleware.
 
-### `server/crates/session/`
+#### `crates/session/`
 Generic connection/session context and lifecycle.
 
-### `server/crates/protocol/`
-Generic Protobuf integration, envelope/version helpers and generation/runtime support.
+#### `crates/protocol/`
+Generic Protobuf/prost integration, envelope/version helpers and runtime support.
 
-### `server/crates/persistence/`
-PostgreSQL/SQLx pool, transaction and low-level persistence infrastructure.
-
-### `server/crates/observability/`
+#### `crates/observability/`
 Tracing, structured context and metrics adapters.
 
-### `server/crates/config/`
-Runtime service configuration parsing/validation. Not game content configuration.
+#### `crates/config/`
+Native runtime service configuration parsing/validation.
 
-### `server/crates/test-support/`
-Small reusable test helpers for framework server tests.
+#### `crates/test-support/`
+Small reusable test helpers for native framework tests.
+
+### `server/persistence/postgres/`
+Optional PostgreSQL/SQLx integration when a concrete service chooses the conventional relational profile.
+
+Do not make this a mandatory dependency of the server framework.
 
 ## 5. Tooling directories
 
@@ -194,9 +231,11 @@ game-repo/
 ├── framework/              # optional git submodule during current two-repo model
 ├── client/
 ├── server/
+│   ├── spacetime/          # concrete game tables/reducers/application backend
+│   └── native/             # dedicated battle/service code only when needed
 ├── shared/
 │   ├── core/               # game-specific Rust/domain core
-│   ├── protocol/           # concrete game Protobuf sources
+│   ├── protocol/           # concrete game Protobuf sources when needed
 │   └── luban/              # concrete game Luban sources
 ├── data/generated/         # if chosen by the game build
 ├── tools/
@@ -214,14 +253,14 @@ client/server/shared -> framework
 framework -X-> game
 ```
 
+For the default backend profile, concrete SpacetimeDB tables/reducers live in the game repository, not in `game-framework`.
+
 ## 7. Placement checklist
 
 Before adding a file to this repository ask:
 
-1. Would this file make sense for a completely different game?
-2. Is it a mechanism rather than a concrete game rule/content definition?
-3. Does it avoid importing a game repository?
-4. Is the chosen directory the narrowest owner of the capability?
-5. Can the feature be tested independently from a concrete game?
-
-If the answer to the first two is no, it probably belongs in the game repository.
+1. Does it contain a concrete game's rules, IDs, tables, messages or feature semantics? If yes, keep it in the game repository.
+2. Is it a reusable runtime mechanism or adapter that can operate without knowing a concrete game? If yes, framework may own it.
+3. Is it engine/runtime-specific glue? Put it in the corresponding adapter area (`laya`, `spacetime`, `native`, etc.).
+4. Is it generated game content? Keep source and ownership in the game repository; framework may own only the generator tooling.
+5. Is the directory only being created because a diagram says it might exist later? Do not create it yet.
