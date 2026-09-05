@@ -9,6 +9,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -20,10 +21,18 @@ function run(command, args, cwd = toolingRoot) {
   if (result.status !== 0) throw new Error(`${command} exited with ${result.status}`);
 }
 
-async function download(url, destination) {
+async function download(url, destination, expectedSha256) {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Download failed ${response.status}: ${url}`);
   const bytes = Buffer.from(await response.arrayBuffer());
+
+  if (expectedSha256) {
+    const actual = createHash("sha256").update(bytes).digest("hex");
+    if (actual !== expectedSha256) {
+      throw new Error(`SHA-256 mismatch for ${url}\nexpected: ${expectedSha256}\nactual:   ${actual}`);
+    }
+  }
+
   writeFileSync(destination, bytes);
 }
 
@@ -63,7 +72,11 @@ async function ensureLuban() {
   const temp = mkdtempSync(join(tmpdir(), "game-framework-luban-"));
   try {
     const archive = join(temp, "Luban.7z");
-    await download(`https://github.com/focus-creative-games/luban/releases/download/v${version}/Luban.7z`, archive);
+    await download(
+      `https://github.com/focus-creative-games/luban/releases/download/v${version}/Luban.7z`,
+      archive,
+      toolchain.luban.archiveSha256,
+    );
     const extracted = join(temp, "extracted");
     mkdirSync(extracted, { recursive: true });
     run(await sevenZipExecutable(), ["x", archive, `-o${extracted}`, "-y"]);
@@ -100,31 +113,47 @@ async function ensureSpacetime() {
   const executableName = process.platform === "win32" ? "spacetime.exe" : "spacetime";
   const targetDir = resolve(toolingRoot, "spacetime", "bin", platformKey());
   const target = resolve(targetDir, executableName);
-  if (existsSync(target)) return;
-
+  const license = resolve(toolingRoot, "spacetime", "LICENSE.txt");
   const version = toolchain.spacetime.cliVersion;
-  const asset = spacetimeAsset(version);
-  const temp = mkdtempSync(join(tmpdir(), "game-framework-spacetime-"));
-  try {
-    const archive = join(temp, basename(asset));
-    await download(`https://github.com/clockworklabs/SpacetimeDB/releases/download/v${version}/${asset}`, archive);
-    const extracted = join(temp, "extracted");
-    mkdirSync(extracted, { recursive: true });
 
-    if (asset.endsWith(".zip")) {
-      run(await sevenZipExecutable(), ["x", archive, `-o${extracted}`, "-y"]);
-    } else {
-      run("tar", ["-xzf", archive, "-C", extracted]);
+  if (!existsSync(target)) {
+    const asset = spacetimeAsset(version);
+    const expectedSha256 = toolchain.spacetime.archiveSha256?.[platformKey()];
+    if (!expectedSha256) throw new Error(`Missing SpacetimeDB checksum for ${platformKey()}`);
+
+    const temp = mkdtempSync(join(tmpdir(), "game-framework-spacetime-"));
+    try {
+      const archive = join(temp, basename(asset));
+      await download(
+        `https://github.com/clockworklabs/SpacetimeDB/releases/download/v${version}/${asset}`,
+        archive,
+        expectedSha256,
+      );
+      const extracted = join(temp, "extracted");
+      mkdirSync(extracted, { recursive: true });
+
+      if (asset.endsWith(".zip")) {
+        run(await sevenZipExecutable(), ["x", archive, `-o${extracted}`, "-y"]);
+      } else {
+        run("tar", ["-xzf", archive, "-C", extracted]);
+      }
+
+      const binary = findFile(extracted, executableName);
+      if (!binary) throw new Error(`SpacetimeDB ${version} archive did not contain ${executableName}`);
+
+      mkdirSync(targetDir, { recursive: true });
+      cpSync(binary, target);
+      if (process.platform !== "win32") chmodSync(target, 0o755);
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
     }
+  }
 
-    const binary = findFile(extracted, executableName);
-    if (!binary) throw new Error(`SpacetimeDB ${version} archive did not contain ${executableName}`);
-
-    mkdirSync(targetDir, { recursive: true });
-    cpSync(binary, target);
-    if (process.platform !== "win32") chmodSync(target, 0o755);
-  } finally {
-    rmSync(temp, { recursive: true, force: true });
+  if (!existsSync(license)) {
+    await download(
+      `https://raw.githubusercontent.com/clockworklabs/SpacetimeDB/v${version}/LICENSE.txt`,
+      license,
+    );
   }
 }
 
