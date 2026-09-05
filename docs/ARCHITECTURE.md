@@ -32,7 +32,8 @@ Allowed in the framework:
 - storage abstractions;
 - WASM runtime/adapter mechanisms;
 - Laya engine adapters;
-- generic server runtime, transport and persistence infrastructure;
+- generic server runtime and backend adapter infrastructure;
+- generic SpacetimeDB/native-server integration mechanisms;
 - generic Protobuf/Luban/code-generation tooling.
 
 Must remain in each game repository:
@@ -42,6 +43,7 @@ Must remain in each game repository:
 - player progression, economy, quests, activities and game-specific services;
 - concrete game Protobuf messages;
 - concrete game Luban tables and generated game data;
+- concrete SpacetimeDB tables/reducers owned by that game;
 - game UI, assets and presentation;
 - secrets and environment-specific production configuration.
 
@@ -58,7 +60,7 @@ Application / Platform Services
         |
 Client or Server Framework
         |
-Engine / OS / Network / Database
+Engine / OS / Network / Backend Runtime
 ```
 
 Framework code should stay at the lower mechanism layers. Authentication products, ads, payment, analytics, remote config and other commercial capabilities should not be pushed into a giant framework service locator. They may use framework primitives while remaining application/platform services unless they are proven generic runtime mechanisms.
@@ -107,96 +109,111 @@ See `docs/CLIENT.md`.
 
 ## 5. Server architecture
 
-The default server foundation is native Rust and follows a modular-monolith-first strategy.
+The default backend strategy is **SpacetimeDB-first** for ordinary game/application state, with native Rust servers added only when a concrete workload requires them.
 
 ```text
-Transport
-   |
-Session / Request Context
-   |
-Application Modules
-   |
-Domain / Game Services
-   |
-Persistence / External Services
+Ordinary game backend
+
+Client
+  |
+  v
+SpacetimeDB
+  |
+  v
+Game application/domain/core
 ```
 
-Baseline technology choices:
+For high-frequency authoritative simulation:
 
-- Rust stable, edition 2024 for new crates;
-- Tokio for async runtime;
-- Axum for HTTP/WebSocket service endpoints;
-- Protobuf for game runtime protocol contracts;
-- `prost` on Rust side for Protobuf code generation/runtime;
-- PostgreSQL as default authoritative relational persistence;
-- SQLx as default PostgreSQL access/migration layer;
-- Redis only when a concrete use case requires cache, ephemeral coordination, rate state, queues or ranking acceleration;
-- `tracing`/`tracing-subscriber` as the logging and structured tracing baseline;
-- `serde` for non-Protobuf configuration/administrative serialization;
-- Docker/Compose as the default deployable unit; compatible with 1Panel and OpenResty reverse proxy.
+```text
+SpacetimeDB
+ account / inventory / quest / matchmaking / settlement
+            |
+            v
+Native Rust Battle/World Server
+ tick / simulation / AOI / replication
+            |
+            v
+SpacetimeDB
+ validated result / settlement
+```
 
-Do not split into microservices by default. Start with one deployable server containing well-separated modules. Extract services only when scaling, isolation or operational ownership creates a real reason.
+Primary server technology choices:
 
-Realtime battle simulation is not required to live in the ordinary HTTP application process. Games that need higher-frequency authoritative simulation may use a dedicated native Rust battle/world server while reusing framework transport/session/observability primitives.
+- Rust as the shared backend/domain language;
+- SpacetimeDB as the preferred first application backend for current games;
+- native Rust with Tokio/Axum when a dedicated service or realtime server is needed;
+- Protobuf/prost for explicit native client/server or service-to-service contracts;
+- PostgreSQL/SQLx only as an optional alternative adapter when a service has a concrete reason to use a conventional relational stack;
+- Redis only when a concrete cache/coordination/queue/presence use case exists;
+- `tracing`/`tracing-subscriber` as the native structured logging baseline;
+- Docker/Compose as the default deployment unit, compatible with 1Panel/OpenResty.
 
-SpacetimeDB may be chosen by a concrete game where it provides clear value, but it is not a mandatory framework dependency. The framework must preserve portability to PostgreSQL/native Rust architectures.
+The framework must remain portable: pure game/domain/core crates should not directly depend on SpacetimeDB, Axum or SQLx unless they are explicit adapter/module layers.
+
+Do not split into microservices by default. SpacetimeDB application logic and native services should remain as few deployable units as practical until scaling or isolation creates a real reason to split.
 
 See `docs/SERVER.md`.
 
-## 6. Protocol and configuration policy
+## 6. Protocol and configuration
 
-Two concepts must stay separate:
+Keep these concerns separate:
 
 ```text
 Luban      = static game/content configuration
-Protobuf   = runtime client/server communication contracts
+Protobuf   = explicit runtime protocol when needed
+SpacetimeDB generated bindings = direct SpacetimeDB reducer/subscription contract
+Runtime config = TOML/JSON/environment variables
+Secrets    = environment/secret storage
 ```
 
-The framework may provide generators, codecs, envelope/session primitives and validation tooling. Concrete game schemas stay with the game.
+Concrete game PB schemas and Luban tables live in the game repository, not in `game-framework`.
 
-A game should keep one source of truth:
+Do not duplicate a SpacetimeDB reducer/subscription interface into Protobuf merely to make every transport look identical.
+
+## 7. Framework-to-game relationship
+
+Current repository model:
 
 ```text
-Game Luban source -> generated client/server/core data
-Game .proto source -> generated TypeScript/Rust protocol code
+game-framework.git
+bounce-ball.git
 ```
 
-Do not maintain separate client and server copies of the same table or message definition.
+During active development, a game may compile framework source directly, including through a Git submodule. A released game pins an exact framework commit/tag so historical builds remain reproducible.
 
-## 7. Framework evolution
+The game repository owns:
 
-Prefer additive and backward-compatible changes.
+```text
+client/
+server/
+shared/
+  core/
+  protocol/
+  luban/
+```
 
-- bug fix: patch-level behavior change with no intentional API break;
-- compatible new capability: minor-level change;
-- silent semantic changes are forbidden;
-- deprecate before removing when practical;
-- breaking changes require explicit migration and a major-version boundary once formal releases are used.
+The framework repository owns only reusable technical mechanisms.
 
-During active development, a game may compile framework source directly. A released game must pin an exact framework commit/tag so the build is reproducible.
+## 8. Evolution rules
 
-## 8. Testing policy
+- Prefer additive, backward-compatible framework changes.
+- Existing behavior must not change silently.
+- Do not promote game code merely because it might be reused later.
+- Extract a capability when it is demonstrably generic or intrinsic to the runtime layer.
+- Keep bug fixes independently reviewable/backportable where practical.
+- Avoid frequent major versions.
+- Do not create empty architecture layers before a real consumer requires them.
 
-Keep tests around architectural invariants and failure boundaries, not implementation trivia.
+## 9. Architecture authority
 
-Examples:
+For this repository, use this order:
 
-- lifecycle parent/child disposal;
-- duplicate/idempotent disposal;
-- package load de-duplication and rollback;
-- router history and nested disposal;
-- update catch-up limits and owner cancellation;
-- server request/session cancellation;
-- transaction/error boundaries;
-- protocol compatibility and code-generation checks.
-
-## 9. Source of truth
-
-For framework behavior use, in order:
-
-1. current working tree and nearest `AGENTS.md`;
+1. nearest `AGENTS.md`;
 2. `docs/ARCHITECTURE.md`;
-3. `docs/CLIENT.md` / `docs/SERVER.md` / `docs/REPOSITORY_LAYOUT.md`;
-4. current tests, validation scripts and source.
+3. `docs/CLIENT.md` / `docs/SERVER.md`;
+4. `docs/REPOSITORY_LAYOUT.md`;
+5. `docs/DEVELOPMENT.md`;
+6. current source/build/test guards.
 
-Old plans, completed task notes and historical PR discussions are not current architecture authority unless historical analysis is explicitly requested.
+Old plans, closed issues, milestone notes and historical discussions are not current architecture authority unless historical analysis is explicitly requested.
