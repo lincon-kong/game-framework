@@ -1,0 +1,17 @@
+{
+  "luban": {
+    "version": "4.10.2",
+    "distribution": "tooling/luban/Luban",
+    "license": "MIT"
+  },
+  "spacetime": {
+    "version": "2.10.0",
+    "distribution": "tooling/spacetime/bin"
+  },
+  "protobuf": {
+    "tsProto": "2.12.1",
+    "grpcTools": "1.13.1",
+    "prostBuild": "0.14.4",
+    "protocBinVendored": "3.2.0"
+  }
+}
