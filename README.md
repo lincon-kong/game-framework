@@ -24,16 +24,16 @@ game-framework/
 │   └── spacetime/       reusable direct SpacetimeDB Rust source + SDK baseline
 ├── tooling/
 │   ├── toolchain.json   shared dependency/version authority
-│   ├── bootstrap.mjs    prepares Framework-owned external tools
-│   ├── spacetime/       pinned CLI + build/dev/publish/bindings wrapper
-│   ├── luban/           full Luban distribution + generation tooling
-│   ├── protobuf/        Framework-owned PB compiler/codegen
+│   ├── install.mjs      one-time machine-level tool installer
+│   ├── spacetime/       build/dev/publish/bindings wrapper
+│   ├── luban/           generation/validation wrapper
+│   ├── protobuf/        PB validation/codegen source
 │   └── scripts/         generate-all / validate-all
 ├── docs/
 └── AGENTS.md
 ```
 
-Native Rust server foundations are added only when a real high-frequency/dedicated-server workload requires them.
+External tool binaries are not duplicated inside every game checkout. The Framework installer places the pinned toolchain in a shared user-level cache.
 
 ## Technology baseline
 
@@ -71,7 +71,7 @@ Framework owns and pins:
 - SpacetimeDB CLI baseline;
 - SpacetimeDB Rust/TypeScript SDK baseline;
 - protoc used by PB generation;
-- ts-proto;
+- ts-proto and its TS runtime;
 - prost-build/protoc-bin-vendored;
 - generation/validation scripts.
 
@@ -86,17 +86,27 @@ Luban schemas/tables/content
 game-tools.json
 ```
 
-A generated/runtime SDK may still physically appear in the game's npm/Cargo build graph when required by the language toolchain, but the game does not choose its version.
+## Install once per machine
 
-## Shared toolchain
-
-Each game owns a root `game-tools.json` based on [`tooling/game-tools.example.json`](./tooling/game-tools.example.json).
-
-First prepare the Framework-owned toolchain:
+With any Framework checkout available, run once:
 
 ```bash
-node framework/tooling/bootstrap.mjs
+node framework/tooling/install.mjs
 ```
+
+Default shared location:
+
+```text
+~/.game-framework/tools/
+```
+
+All games on that machine reuse the same versioned tool cache. When Framework later pins a new tool version, it is installed side-by-side rather than replacing versions still needed by older games.
+
+Generated TypeScript runtime packages are also stored centrally. Generation creates lightweight project links when required; it does not run a fresh package install for each game.
+
+## Per-game commands
+
+Each game owns a root `game-tools.json` based on [`tooling/game-tools.example.json`](./tooling/game-tools.example.json).
 
 Then from the game repository:
 
