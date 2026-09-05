@@ -1,64 +1,84 @@
 # Framework Tooling
 
-Shared code-generation/build tooling used by game repositories.
+Shared build/code-generation toolchain used by all game repositories.
+
+## Ownership rule
+
+**Framework owns tool dependencies and their versions. Games own only input schemas/data and output paths.**
 
 ```text
-tooling/
-├── game-tools.example.json
-├── lib/
-├── spacetime/
-│   └── run.mjs
-├── luban/
-│   ├── lib.mjs
-│   ├── validate.mjs
-│   └── generate.mjs
-├── protobuf/
-│   ├── lib.mjs
-│   ├── validate.mjs
-│   ├── generate.mjs
-│   └── rust-codegen/
-├── scripts/
-│   ├── generate-all.mjs
-│   └── validate-all.mjs
-└── package.json
+game-framework/
+└── tooling/
+    ├── toolchain.json          pinned tool versions
+    ├── bootstrap.mjs           installs Framework-owned tools
+    ├── package.json            Node/codegen dependencies
+    ├── luban/                  Luban distribution + wrapper
+    ├── spacetime/              SpacetimeDB CLI + wrapper
+    ├── protobuf/               protoc/ts-proto/prost codegen
+    └── scripts/                aggregate commands
 ```
 
-## Game configuration
+A game must not carry its own Luban runtime, protoc, ts-proto, prost-build tool crate or SpacetimeDB CLI version.
 
-Each consuming game owns one `game-tools.json` at repository root. Start from `tooling/game-tools.example.json`.
+## Pinned baseline
 
-The config only describes paths and generation targets. Concrete SpacetimeDB tables/reducers, `.proto` schemas and Luban source data remain in the game repository.
+`tooling/toolchain.json` is the authority for external tool versions.
 
-## Install tool dependencies
+Current baseline:
+
+- Luban `4.10.2`;
+- SpacetimeDB CLI `2.10.0`;
+- ts-proto `2.12.1`;
+- grpc-tools/protoc `1.13.1`;
+- prost-build `0.14.4`;
+- protoc-bin-vendored `3.2.0`.
+
+Do not upgrade one consuming game independently. Upgrade Framework, validate against consumers, then move the game's Framework commit when desired.
+
+## Bootstrap
+
+From the Framework tooling directory or from a consuming game submodule:
 
 ```bash
-cd framework/tooling
-npm install
+node framework/tooling/bootstrap.mjs
 ```
 
-External tools expected on PATH:
+The bootstrap installs/downloads dependencies into the Framework tree:
 
-- `spacetime` for SpacetimeDB build/publish/binding generation;
-- `dotnet` for repository-local Luban.dll;
-- `protoc` for Protobuf validation/TypeScript generation;
-- `cargo` for Rust/prost generation.
+```text
+framework/tooling/node_modules/
+framework/tooling/luban/Luban/
+framework/tooling/luban/LICENSE
+framework/tooling/spacetime/bin/<platform>-<arch>/
+```
 
-Luban lookup order is:
+The game repository does not own these files.
 
-1. `luban.dll` configured in the game's `game-tools.json`;
-2. `framework/tooling/luban/Luban/Luban.dll`;
-3. legacy game-local `tools/luban/Luban/Luban.dll` (keeps current BounceBall layout usable during migration).
+Framework Git may later choose to commit selected vendored binary distributions for fully offline/reproducible builds. The ownership rule remains the same either way.
+
+## Per-game configuration
+
+Each game owns only root `game-tools.json`, based on `tooling/game-tools.example.json`.
+
+It describes:
+
+- where the game's SpacetimeDB module source lives;
+- where generated SpacetimeDB bindings should be written;
+- where the game's `luban.conf` and generated outputs live;
+- where game `.proto` source and generated TS/Rust files live.
+
+It does **not** select tool versions or point to game-local tool binaries.
 
 ## Unified commands
 
-Run from the consuming game repository:
+Run from the consuming game root:
 
 ```bash
 node framework/tooling/scripts/generate-all.mjs
 node framework/tooling/scripts/validate-all.mjs
 ```
 
-Both commands accept `--game-root DIR` and `--config FILE` when the current working directory is not the game root.
+Disabled sections in `game-tools.json` are skipped.
 
 ### SpacetimeDB
 
@@ -69,11 +89,21 @@ node framework/tooling/spacetime/run.mjs dev
 node framework/tooling/spacetime/run.mjs publish --database my-game --server local
 ```
 
-Generated bindings are direct SpacetimeDB client bindings; do not wrap them in a duplicate PB transport.
+These commands use the Framework-local pinned SpacetimeDB CLI, never a game-local/global CLI by default.
+
+Generated bindings are the direct typed client contract; do not wrap normal reducer/subscription interaction in duplicate PB RPC.
 
 ### Luban
 
-The shared generator intentionally matches the proven BounceBall output model:
+The Framework owns the full Luban distribution and dependencies under:
+
+```text
+framework/tooling/luban/Luban/
+```
+
+Games own only `luban.conf`, schemas/spreadsheets and content.
+
+Standard output follows the BounceBall-proven model:
 
 ```text
 <outputRoot>/typescript-bin
@@ -87,9 +117,12 @@ TypeScript and Rust readers consume the same binary data set.
 
 One game-owned `.proto` source tree generates both sides:
 
-- TypeScript: `ts-proto`;
-- Rust: `prost-build`.
+```text
+.proto
+  ├── TypeScript via Framework ts-proto + Framework-owned protoc
+  └── Rust via Framework prost-build + protoc-bin-vendored
+```
 
-The generated TypeScript uses the ts-proto 2.x runtime model; the consuming client must include its generated-code runtime dependencies when PB is enabled.
+No system protoc installation and no game-local PB generator dependencies are required.
 
 PB is only for explicit independent protocol boundaries. Direct SpacetimeDB client interactions use SpacetimeDB generated bindings instead.
