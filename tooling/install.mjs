@@ -60,13 +60,16 @@ function findFile(root, name) {
 function ensureNodeTools() {
   const root = protobufNodeRoot();
   const marker = resolve(root, "node_modules", ".bin", process.platform === "win32" ? "grpc_tools_node_protoc.cmd" : "grpc_tools_node_protoc");
-  if (existsSync(marker)) return root;
+  const spacetimeSdk = resolve(root, "node_modules", "spacetimedb", "package.json");
+  const bufRuntime = resolve(root, "node_modules", "@bufbuild", "protobuf", "package.json");
+  if (existsSync(marker) && existsSync(spacetimeSdk) && existsSync(bufRuntime)) return root;
 
   mkdirSync(root, { recursive: true });
   const packageJson = resolve(root, "package.json");
   writeFileSync(packageJson, JSON.stringify({ name: "game-framework-shared-tools", private: true }, null, 2));
 
   const pb = toolchain.protobuf;
+  const st = toolchain.spacetime;
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   run(npm, [
     "install",
@@ -74,6 +77,8 @@ function ensureNodeTools() {
     `7zip-bin@${pb.sevenZipBin}`,
     `grpc-tools@${pb.grpcTools}`,
     `ts-proto@${pb.tsProto}`,
+    `@bufbuild/protobuf@${pb.bufbuildProtobuf}`,
+    `spacetimedb@${st.typescriptSdkVersion}`,
   ], root);
   return root;
 }
