@@ -3,6 +3,10 @@ import { join } from "node:path";
 import { gamePath, loadGameConfig, requireSection, run, toolingRoot } from "../lib/game-config.mjs";
 import { listProtoFiles } from "./lib.mjs";
 
+function toolBin(name) {
+  return join(toolingRoot, "node_modules", ".bin", process.platform === "win32" ? `${name}.cmd` : name);
+}
+
 try {
   const { gameRoot, config } = loadGameConfig();
   const section = requireSection(config, "protobuf");
@@ -15,17 +19,19 @@ try {
   const protos = listProtoFiles(source);
   if (protos.length === 0) throw new Error(`No .proto files found under ${source}`);
 
+  const protoc = toolBin("grpc_tools_node_protoc");
+  const tsProto = toolBin("protoc-gen-ts_proto");
+  if (!existsSync(protoc) || !existsSync(tsProto)) {
+    throw new Error(`Framework Protobuf dependencies are missing. Run npm install in ${toolingRoot}`);
+  }
+
   const typescriptOut = section.typescriptOut ? gamePath(gameRoot, section.typescriptOut) : undefined;
   if (typescriptOut) {
-    const plugin = join(toolingRoot, "node_modules", ".bin", process.platform === "win32" ? "protoc-gen-ts_proto.cmd" : "protoc-gen-ts_proto");
-    if (!existsSync(plugin)) {
-      throw new Error(`Missing ts-proto plugin: ${plugin}. Run npm install in ${toolingRoot}`);
-    }
     rmSync(typescriptOut, { recursive: true, force: true });
     mkdirSync(typescriptOut, { recursive: true });
-    run("protoc", [
+    run(protoc, [
       "-I", source,
-      `--plugin=protoc-gen-ts_proto=${plugin}`,
+      `--plugin=protoc-gen-ts_proto=${tsProto}`,
       `--ts_proto_out=${typescriptOut}`,
       "--ts_proto_opt=env=browser,forceLong=string,esModuleInterop=true,outputServices=none,useExactTypes=false",
       ...protos,
