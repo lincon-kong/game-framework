@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = resolve(fileURLToPath(new URL(".", import.meta.url)));
@@ -38,23 +38,69 @@ export function spacetimeExecutable() {
   return path;
 }
 
-export function protobufNodeRoot() {
+export function sharedNodeRoot() {
   const pb = toolchain.protobuf;
+  const st = toolchain.spacetime;
   return resolve(
     toolHome(),
-    "protobuf",
     "node",
-    `ts-proto-${pb.tsProto}_grpc-tools-${pb.grpcTools}_7zip-bin-${pb.sevenZipBin}`,
+    `st-${st.typescriptSdkVersion}_tsproto-${pb.tsProto}_grpc-${pb.grpcTools}_buf-${pb.bufbuildProtobuf}_7zip-${pb.sevenZipBin}`,
   );
+}
+
+export function protobufNodeRoot() {
+  return sharedNodeRoot();
 }
 
 export function protobufNodeBin(name) {
   const executable = process.platform === "win32" ? `${name}.cmd` : name;
-  const path = resolve(protobufNodeRoot(), "node_modules", ".bin", executable);
+  const path = resolve(sharedNodeRoot(), "node_modules", ".bin", executable);
   if (!existsSync(path)) {
-    throw new Error(`Framework Protobuf Node tool is not installed: ${path}. Run: node framework/tooling/install.mjs`);
+    throw new Error(`Framework Node tool is not installed: ${path}. Run: node framework/tooling/install.mjs`);
   }
   return path;
+}
+
+function packagePath(root, packageName) {
+  return resolve(root, "node_modules", ...packageName.split("/"));
+}
+
+export function sharedNodePackage(packageName) {
+  const path = packagePath(sharedNodeRoot(), packageName);
+  if (!existsSync(path)) {
+    throw new Error(`Framework Node runtime package is not installed: ${packageName}. Run: node framework/tooling/install.mjs`);
+  }
+  return path;
+}
+
+function expectedPackageVersion(packageName) {
+  if (packageName === "spacetimedb") return toolchain.spacetime.typescriptSdkVersion;
+  if (packageName === "@bufbuild/protobuf") return toolchain.protobuf.bufbuildProtobuf;
+  return undefined;
+}
+
+function packageVersion(path) {
+  const file = resolve(path, "package.json");
+  if (!existsSync(file)) return undefined;
+  return JSON.parse(readFileSync(file, "utf8")).version;
+}
+
+export function ensureGameNodePackageLink(gameRoot, packageName) {
+  const target = sharedNodePackage(packageName);
+  const link = packagePath(gameRoot, packageName);
+  const expected = expectedPackageVersion(packageName);
+
+  if (existsSync(link)) {
+    const actual = packageVersion(link);
+    if (expected && actual !== expected) {
+      throw new Error(`Game has ${packageName}@${actual ?? "unknown"}, but Framework requires ${expected}. Remove the game-managed package and rerun generation.`);
+    }
+    return link;
+  }
+
+  mkdirSync(dirname(link), { recursive: true });
+  symlinkSync(target, link, process.platform === "win32" ? "junction" : "dir");
+  return link;
 }
 
 export function protobufRustCodegenExecutable() {
