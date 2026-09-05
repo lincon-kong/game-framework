@@ -11,50 +11,32 @@ game-framework/
 │
 ├── client/
 │   ├── src/
-│   │   ├── Framework.ts
-│   │   ├── FrameworkAccess.ts
-│   │   ├── lifecycle/
-│   │   ├── asset/
-│   │   ├── package/
-│   │   ├── router/
-│   │   ├── ui/
-│   │   ├── event/
-│   │   ├── timer/
-│   │   ├── update/
-│   │   ├── pool/
-│   │   ├── entity/
-│   │   ├── fsm/
-│   │   ├── module/
-│   │   ├── network/
-│   │   ├── storage/
-│   │   ├── log/
-│   │   ├── crash/
-│   │   ├── perfdog/
-│   │   ├── wasm/
-│   │   ├── error/
-│   │   └── laya/
 │   ├── tests/
-│   ├── package.json
-│   ├── tsconfig.json
 │   └── README.md
 │
 ├── server/
 │   ├── spacetime/
 │   │   ├── Cargo.toml
-│   │   ├── src/
-│   │   │   └── lib.rs
+│   │   ├── src/lib.rs
 │   │   └── README.md
 │   ├── native/                  # create only when a real game needs it
 │   └── README.md
 │
 ├── tooling/
+│   ├── toolchain.json           # shared dependency/version authority
+│   ├── bootstrap.mjs            # prepares Framework-owned external tools
 │   ├── package.json
 │   ├── game-tools.example.json
 │   ├── lib/
-│   │   └── game-config.mjs
+│   │   ├── game-config.mjs
+│   │   └── toolchain.mjs
 │   ├── spacetime/
-│   │   └── run.mjs
+│   │   ├── bin/<platform>-<arch>/
+│   │   ├── run.mjs
+│   │   └── README.md
 │   ├── luban/
+│   │   ├── Luban/               # complete pinned Luban distribution
+│   │   ├── LICENSE
 │   │   ├── lib.mjs
 │   │   ├── validate.mjs
 │   │   ├── generate.mjs
@@ -78,92 +60,77 @@ game-framework/
     └── DEVELOPMENT.md
 ```
 
-Do not create empty directory skeletons merely because a diagram lists a future capability.
+Do not create empty future skeletons. Tool binary directories appear when `tooling/bootstrap.mjs` installs or when a pinned distribution is intentionally vendored into Framework Git.
 
-## 2. Root files
+## 2. Root ownership
 
 ### `README.md`
 Repository entry point and documentation index.
 
 ### `AGENTS.md`
-Mandatory repository rules for humans/Codex/other automated contributors. It defines architecture authority, forbidden dependency directions and placement rules.
+Mandatory rules for humans/Codex/automated contributors, including dependency ownership.
 
 ### `docs/`
 Long-lived architecture authority. Do not store temporary task plans/status logs here.
 
 ## 3. Client ownership
 
-### `client/src/lifecycle/`
-Owner/scope topology, registration/disposal and lifecycle state.
+`client/` contains reusable TypeScript/Laya runtime mechanisms only: lifecycle, asset/package/router/UI/event/timer/update/pool/entity/FSM/module/network/storage/log/crash/performance/WASM/error/Laya integration and focused tests.
 
-### `client/src/asset/`
-Generic asset load/release/cache mechanisms. No game asset IDs.
-
-### `client/src/package/`
-Generic package load/unload lifecycle. No concrete game package names.
-
-### `client/src/router/`
-Route model/history/lifecycle integration. No concrete game routes.
-
-### `client/src/ui/`
-Generic layer/mount/popup/view-host mechanisms. No game UI.
-
-### `client/src/event/`, `timer/`, `update/`
-Owner-aware events/timers and frame/fixed-step scheduling.
-
-### `client/src/pool/`, `entity/`, `fsm/`, `module/`
-Generic runtime primitives only; game ECS/components/state machines remain game-owned when domain-specific.
-
-### `client/src/network/`
-Generic transport primitives used outside direct SpacetimeDB bindings. No game API methods/messages.
-
-### `client/src/storage/`
-Local storage/migration primitives. No authoritative player-save schema.
-
-### `client/src/log/`, `crash/`, `perfdog/`
-Logging, crash/error reporting and optional performance instrumentation.
-
-### `client/src/wasm/`
-Generic WASM loading/memory/call mechanisms. No game ABI semantics.
-
-### `client/src/error/`
-Framework error primitives/failure categories.
-
-### `client/src/laya/`
-LayaAir-specific integration. Engine coupling should stay here where practical.
-
-### `client/tests/`
-Focused contract/invariant tests.
+Concrete game routes, UI, controllers, models, assets, APIs and gameplay remain game-owned.
 
 ## 4. Server ownership
 
 ### `server/spacetime/`
 A real reusable Rust crate for the default **direct SpacetimeDB** backend model.
 
-It may directly depend on SpacetimeDB and expose small reusable helpers such as common caller/ownership/validation conventions. It is not an Adapter/Repository/Port abstraction.
+It owns the Framework-supported Rust SpacetimeDB SDK baseline and may expose/re-export small reusable helpers/types. It is not an Adapter/Repository/Port abstraction.
 
-A consuming game may path-depend on this crate while its own module directly uses SpacetimeDB APIs.
-
-Do not put concrete player/inventory/quest/economy/stage/battle tables or reducers here.
+Concrete player/inventory/quest/economy/stage/battle tables and reducers stay in the game repository.
 
 ### `server/native/`
 Reserved for reusable native Rust server foundations only when a real consumer requires dedicated process/realtime behavior. Do not create Tokio/Axum/world-server skeletons in advance.
 
 There is intentionally no baseline `persistence/adapter/repository` layer.
 
-## 5. Tooling ownership
+## 5. Toolchain ownership
+
+### `tooling/toolchain.json`
+Single authority for shared tool/compiler/CLI/SDK baseline versions.
+
+Current categories include:
+
+- Luban distribution version;
+- SpacetimeDB CLI/Rust/TypeScript SDK baseline;
+- ts-proto;
+- grpc-tools/protoc;
+- prost-build;
+- protoc-bin-vendored.
+
+A concrete game must not override these versions.
+
+### `tooling/bootstrap.mjs`
+Prepares Framework-owned external dependencies under the Framework tree. It does not install a separate copy per game.
 
 ### `tooling/game-tools.example.json`
-Canonical per-game toolchain configuration example. Consuming games copy/adapt it as root `game-tools.json`.
+Canonical **per-game path configuration** example. Consuming games copy/adapt it as root `game-tools.json`.
+
+It may configure source/output/database paths, but never tool versions or game-local tool binary paths.
 
 ### `tooling/lib/`
-Small shared implementation used by framework codegen commands: config loading, game/framework path resolution and process execution.
+Shared implementation for config/path/process/toolchain resolution.
 
 ### `tooling/spacetime/`
-Wraps official SpacetimeDB CLI for build, bindings generation, local dev and publish. Generated bindings are the direct typed client contract.
+Owns the pinned SpacetimeDB CLI distribution and wrappers for build, binding generation, local dev and publish.
+
+Games own their module source and binding output paths only.
 
 ### `tooling/luban/`
-Validates and invokes Luban. Current standard output follows BounceBall's proven model:
+Owns the **complete pinned Luban release distribution and dependencies**, license and generation/validation mechanics.
+
+Games own only `luban.conf`, schemas/spreadsheets/content and generated outputs.
+
+Standard output follows the BounceBall-proven model:
 
 ```text
 <outputRoot>/typescript-bin
@@ -171,17 +138,16 @@ Validates and invokes Luban. Current standard output follows BounceBall's proven
 <outputRoot>/bin
 ```
 
-Framework owns generation mechanics; games own `luban.conf`, schemas/spreadsheets and content.
-
 ### `tooling/protobuf/`
-Validates one game-owned `.proto` source and exports:
+Owns all PB generation/compiler dependencies.
 
 ```text
-.proto -> TypeScript (ts-proto)
-       -> Rust (prost-build)
+Game .proto
+    ├── TypeScript: Framework grpc-tools/protoc + ts-proto
+    └── Rust: Framework prost-build + protoc-bin-vendored
 ```
 
-No separate client/server proto sources.
+No separate client/server proto source and no game-local protoc/codegen packages.
 
 ### `tooling/scripts/`
 Aggregate developer/CI entry points:
@@ -198,7 +164,7 @@ A game should converge on:
 ```text
 game-repo/
 ├── framework/                  # game-framework Git submodule
-├── game-tools.json
+├── game-tools.json             # paths only, no tool versions
 ├── client/
 │   └── generated/
 │       ├── spacetime/
@@ -213,17 +179,16 @@ game-repo/
 │   │       └── jobs/
 │   └── native/                 # only when needed
 ├── shared/
-│   ├── core/                   # portable game Rust/GameCore when useful
-│   └── protocol/               # concrete `.proto` only when PB is needed
+│   ├── core/
+│   └── protocol/
 ├── data/
-│   ├── Datas/                  # Luban source (BounceBall-compatible convention)
+│   ├── Datas/
 │   ├── luban.conf
 │   └── generated/
-├── tools/
 └── docs/
 ```
 
-The exact game paths are configurable through `game-tools.json`; the important rule is ownership, not one hard-coded path.
+The exact paths are configurable through `game-tools.json`; ownership is the invariant.
 
 Dependency direction:
 
@@ -232,25 +197,33 @@ client/server/shared -> framework
 framework -X-> concrete game
 ```
 
-Normal game backend code directly uses SpacetimeDB. Do not insert a database abstraction layer by default.
+## 7. Dependency ownership rule
 
-## 7. Source-of-truth rules
+```text
+Framework owns:
+  runtime/framework source
+  tool binaries/distributions
+  compiler/codegen dependencies
+  shared SDK version baseline
+  generation/validation logic
 
-- SpacetimeDB game module source: game repository.
-- SpacetimeDB reusable helpers/tooling: framework.
-- Luban schema/data: game repository.
-- Luban generator/export convention: framework.
-- `.proto`: game repository.
-- PB generator/export convention: framework.
-- generated output: derived; never hand-edit.
+Game owns:
+  business source
+  concrete schemas/tables/messages
+  game configuration content
+  source/output locations
+```
+
+Some SDK packages may physically appear in a consuming game's npm/Cargo graph because its compiler/generated code needs them. This is permitted only as a build-resolution detail: the supported version is still chosen by Framework.
 
 ## 8. Placement checklist
 
-Before adding a file ask:
+Before adding a file/dependency ask:
 
 1. Does it encode one game's rules, IDs, tables, messages or feature semantics? Keep it in the game.
-2. Is it a reusable technical mechanism/tool that works without importing a game? Framework may own it.
-3. Is it concrete SpacetimeDB table/reducer/service logic? Keep it in the game; only proven common helpers move to `server/spacetime`.
-4. Is it generated output? Change the source/generator instead of editing the generated file.
-5. Is an Adapter/Repository/Port being proposed only to hide SpacetimeDB? Do not add it.
-6. Is a directory being created only for a hypothetical future feature? Do not create it yet.
+2. Is it a reusable technical mechanism/tool? Framework may own it.
+3. Is it a compiler, CLI, generator, SDK baseline or its version rule? Framework owns it.
+4. Is it concrete SpacetimeDB table/reducer/service logic? Keep it in the game.
+5. Is it generated output? Change source/generator instead of hand-editing.
+6. Is an Adapter/Repository/Port proposed only to hide SpacetimeDB? Do not add it.
+7. Is a directory being created only for a hypothetical future feature? Do not create it yet.
