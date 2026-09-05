@@ -92,9 +92,9 @@ Reducers/services may call SpacetimeDB APIs directly.
 
 Do not add `PlayerRepository`, `DatabaseAdapter`, `SpacetimeAdapter`, `PersistencePort` or similar layers merely for architectural symmetry.
 
-## 5. Framework SpacetimeDB source
+## 5. Framework SpacetimeDB source and dependency ownership
 
-Framework now contains a real reusable crate:
+Framework contains the reusable crate:
 
 ```text
 server/spacetime/
@@ -103,17 +103,22 @@ server/spacetime/
 └── README.md
 ```
 
-It directly depends on SpacetimeDB 2.x and currently contains only small common guards/helpers.
+Framework owns the supported SpacetimeDB Rust SDK baseline and currently pins `2.8.3`.
 
-A game module may path-depend on it:
+The crate re-exports its pinned `spacetimedb` dependency where practical.
+
+Preferred game dependency:
 
 ```toml
 [dependencies]
 game-framework-spacetime = { path = "../../framework/server/spacetime" }
-spacetimedb = "2"
 ```
 
-Only helpers that are genuinely reusable across games belong here. Do not grow this into a generic business-service layer.
+If SpacetimeDB proc-macro/build behavior requires the consuming game module to declare `spacetimedb` directly, the declaration is allowed only as a Cargo build-resolution requirement and must use the exact Framework baseline. The game must not choose its own version.
+
+Validate this against the first real BounceBall SpacetimeDB module before adding more dependency-sync machinery.
+
+Only helpers that are genuinely reusable across games belong in Framework. Do not grow this crate into a generic business-service layer.
 
 ## 6. Pure GameCore exception
 
@@ -168,13 +173,30 @@ Luban schemas/tables and PB schemas are concrete-game source and stay in the gam
 
 ## 9. SpacetimeDB toolchain
 
-Framework owns the common CLI wrapper:
+Framework owns all SpacetimeDB toolchain version decisions:
 
 ```text
-tooling/spacetime/run.mjs
+tooling/toolchain.json
+├── CLI baseline
+├── Rust module SDK baseline
+└── TypeScript SDK baseline
 ```
 
-Supported flows:
+Current aligned baseline is `2.8.3`.
+
+Framework also owns the CLI binary under:
+
+```text
+tooling/spacetime/bin/<platform>-<arch>/
+```
+
+Prepare it with:
+
+```bash
+node framework/tooling/bootstrap.mjs
+```
+
+Then use:
 
 ```bash
 node framework/tooling/spacetime/run.mjs build
@@ -183,9 +205,11 @@ node framework/tooling/spacetime/run.mjs dev
 node framework/tooling/spacetime/run.mjs publish
 ```
 
-Paths, database name, server and binding outputs come from the game's `game-tools.json`.
+These wrappers use the Framework-local pinned CLI rather than an arbitrary global `spacetime` installation.
 
-The Framework wrapper delegates schema/build/publish/codegen semantics to the official SpacetimeDB CLI instead of reimplementing them.
+Paths, database name, server and binding outputs come from the game's `game-tools.json`; tool versions do not.
+
+Generated TypeScript/Rust runtime SDK packages may still physically appear in the consuming game's package/Cargo graph because the generated code/compiler requires them. Their supported version is nevertheless selected by Framework.
 
 ## 10. Native Rust realtime server
 
@@ -247,7 +271,7 @@ Game SpacetimeDB tests should focus on real behavior:
 - deterministic GameCore behavior;
 - important binding/protocol compatibility.
 
-Framework tests cover only reusable framework invariants/helpers/tooling.
+Framework tests cover only reusable Framework invariants/helpers/tooling.
 
 ## 13. Deployment
 
