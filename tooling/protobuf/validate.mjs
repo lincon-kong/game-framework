@@ -1,7 +1,8 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gamePath, loadGameConfig, requireSection, run, toolingRoot } from "../lib/game-config.mjs";
+import { gamePath, loadGameConfig, requireSection, run } from "../lib/game-config.mjs";
+import { protobufNodeBin } from "../lib/toolchain.mjs";
 import { listProtoFiles } from "./lib.mjs";
 
 try {
@@ -15,11 +16,7 @@ try {
   const protos = listProtoFiles(source);
   if (protos.length === 0) throw new Error(`No .proto files found under ${source}`);
 
-  const protoc = join(toolingRoot, "node_modules", ".bin", process.platform === "win32" ? "grpc_tools_node_protoc.cmd" : "grpc_tools_node_protoc");
-  if (!existsSync(protoc)) {
-    throw new Error(`Framework Protobuf dependencies are missing. Run npm install in ${toolingRoot}`);
-  }
-
+  const protoc = protobufNodeBin("grpc_tools_node_protoc");
   const temp = mkdtempSync(join(tmpdir(), "game-framework-proto-"));
   try {
     run(protoc, [
