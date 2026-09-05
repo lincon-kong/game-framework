@@ -1,7 +1,6 @@
 {
   "luban": {
     "version": "4.10.2",
-    "distribution": "tooling/luban/Luban",
     "archiveSha256": "785b53b570c918827d314ef78caa180ca1c55bc252ebc1e921a6dc0760317e8d",
     "license": "MIT"
   },
@@ -9,7 +8,6 @@
     "cliVersion": "2.8.3",
     "rustModuleVersion": "2.8.3",
     "typescriptSdkVersion": "2.8.3",
-    "distribution": "tooling/spacetime/bin",
     "license": "Business Source License 1.1",
     "archiveSha256": {
       "darwin-arm64": "b557835b862a7af4e60ad09de895a3aa2eee86dd690a9816df08b1b9e3f782ec",
@@ -22,6 +20,7 @@
   "protobuf": {
     "tsProto": "2.12.1",
     "grpcTools": "1.13.1",
+    "sevenZipBin": "5.2.0",
     "prostBuild": "0.14.4",
     "protocBinVendored": "3.2.0"
   }
