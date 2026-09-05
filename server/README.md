@@ -7,11 +7,12 @@ Directory ownership: [`../docs/REPOSITORY_LAYOUT.md`](../docs/REPOSITORY_LAYOUT.
 
 Current backend strategy:
 
-- SpacetimeDB-first for ordinary game/application backend state;
-- native Rust server foundation for dedicated service and high-frequency realtime workloads;
-- PostgreSQL/SQLx only as an optional alternative adapter when a concrete service requires it;
-- Redis optional and introduced only for a real cache/coordination/queue/presence requirement;
-- Docker/Compose as the default deployment unit.
+- **direct SpacetimeDB** for ordinary game/application backend state;
+- game tables/reducers/services may use SpacetimeDB APIs directly;
+- no generic Adapter/Repository/Port layer is required around SpacetimeDB;
+- native Rust server foundation is added only for dedicated service/high-frequency realtime workloads;
+- Protobuf is used only for explicit independent protocol boundaries;
+- Docker/Compose is the default deployment unit.
 
 Do not create a large empty server skeleton. Add reusable framework mechanisms only when real game/server work requires them.
 
