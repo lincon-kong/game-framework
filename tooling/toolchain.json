@@ -5,7 +5,9 @@
     "license": "MIT"
   },
   "spacetime": {
-    "version": "2.10.0",
+    "cliVersion": "2.8.3",
+    "rustModuleVersion": "2.8.3",
+    "typescriptSdkVersion": "2.8.3",
     "distribution": "tooling/spacetime/bin"
   },
   "protobuf": {
