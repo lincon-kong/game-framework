@@ -85,11 +85,11 @@ async function ensureLuban() {
 
 function spacetimeAsset(version) {
   const assets = {
-    "darwin-arm64": `spacetime-aarch64-apple-darwin.tar.gz`,
-    "darwin-x64": `spacetime-x86_64-apple-darwin.tar.gz`,
-    "linux-arm64": `spacetime-aarch64-unknown-linux-gnu.tar.gz`,
-    "linux-x64": `spacetime-x86_64-unknown-linux-gnu.tar.gz`,
-    "win32-x64": `spacetime-x86_64-pc-windows-msvc.zip`,
+    "darwin-arm64": "spacetime-aarch64-apple-darwin.tar.gz",
+    "darwin-x64": "spacetime-x86_64-apple-darwin.tar.gz",
+    "linux-arm64": "spacetime-aarch64-unknown-linux-gnu.tar.gz",
+    "linux-x64": "spacetime-x86_64-unknown-linux-gnu.tar.gz",
+    "win32-x64": "spacetime-x86_64-pc-windows-msvc.zip",
   };
   const asset = assets[platformKey()];
   if (!asset) throw new Error(`SpacetimeDB ${version} bootstrap does not support ${platformKey()}`);
@@ -102,7 +102,7 @@ async function ensureSpacetime() {
   const target = resolve(targetDir, executableName);
   if (existsSync(target)) return;
 
-  const version = toolchain.spacetime.version;
+  const version = toolchain.spacetime.cliVersion;
   const asset = spacetimeAsset(version);
   const temp = mkdtempSync(join(tmpdir(), "game-framework-spacetime-"));
   try {
@@ -132,7 +132,7 @@ try {
   await ensureNodeDependencies();
   await ensureLuban();
   await ensureSpacetime();
-  console.log(`Framework toolchain ready: Luban ${toolchain.luban.version}, SpacetimeDB ${toolchain.spacetime.version}`);
+  console.log(`Framework toolchain ready: Luban ${toolchain.luban.version}, SpacetimeDB CLI ${toolchain.spacetime.cliVersion}`);
 } catch (error) {
   console.error(error.message);
   process.exit(1);
