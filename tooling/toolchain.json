@@ -1,16 +1,14 @@
 {
   "server": {
-    "goMinimum": "1.25"
+    "goVersion": "1.26.7"
   },
   "luban": {
     "version": "4.10.2",
-    "archiveSha256": "785b53b570c918827d314ef78caa180ca1c55bc252ebc1e921a6dc0760317e8d",
     "license": "MIT"
   },
   "protobuf": {
     "tsProto": "2.12.1",
     "grpcTools": "1.13.1",
-    "sevenZipBin": "5.2.0",
     "bufbuildProtobuf": "2.10.2",
     "protocGenGo": "1.36.11"
   }
