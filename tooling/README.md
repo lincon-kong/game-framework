@@ -4,31 +4,36 @@ Shared build/code-generation toolchain used by all game repositories.
 
 ## Ownership
 
-- `server/go.mod` owns Go server runtime dependency versions such as Pitaya.
-- `tooling/toolchain.json` owns machine/code-generation tool versions.
-- Games own concrete schemas/data/source paths, not Framework tool versions.
+- `.go-version` + `tooling/toolchain.json` own the exact Go toolchain policy.
+- `server/go.mod` owns shared Go server runtime dependencies such as Pitaya.
+- `tooling/luban/vendor/Luban/` contains the committed Luban distribution used by every game.
+- `tooling/toolchain.json` owns Protobuf generator/runtime package versions.
+- Games own concrete schemas/data/source paths and generation targets, not Framework tool versions.
 
-## Install once
+## Bootstrap generated-code tools
 
 ```bash
 node framework/tooling/install.mjs
 node framework/tooling/doctor.mjs
 ```
 
-Default shared root:
+Luban is **not downloaded** by this command. Luban ships with the Framework checkout.
+
+The user-level cache is only for generated-code helpers that are platform-specific or npm/go-installed:
 
 ```text
 ~/.game-framework/tools/
-├── luban/<version>/
 ├── node/<version-set>/
 └── protobuf/go/protoc-gen-go-<version>/bin/
 ```
 
-The installer does not install Go, Node or .NET themselves. Doctor requires Node >=18, Go >=1.25 and .NET 8 for the current baseline. Rust is optional and only needed by games that actually own Rust/WASM or a future Rust GameServer.
+The installer does not install Go, Node or .NET themselves. Current baseline is Node >=18, exact Go `1.26.7`, and .NET 8 for Luban. Rust is optional and only needed by games that actually own Rust/WASM or a future Rust GameServer.
 
 ## Current tool baseline
 
-- Luban `4.10.2`;
+- Go `1.26.7`;
+- Luban `4.10.2` committed in Framework;
+- Pitaya `2.11.24` through `server/go.mod`;
 - ts-proto `2.12.1`;
 - @bufbuild/protobuf `2.10.2`;
 - grpc-tools/protoc `1.13.1`;
@@ -39,7 +44,7 @@ The installer does not install Go, Node or .NET themselves. Doctor requires Node
 `game-tools.json` describes:
 
 - Go server module path;
-- Luban config/output/languages;
+- Luban config/output/languages and the game's Go import module for generated config;
 - `.proto` source and TypeScript/Go outputs.
 
 It does not select tool versions.
@@ -51,7 +56,7 @@ node framework/tooling/scripts/generate-all.mjs
 node framework/tooling/scripts/validate-all.mjs
 ```
 
-Generation currently covers Luban + Protobuf. Validation covers Luban source, Protobuf source and `go test ./...` for the enabled game server module.
+Generation covers Luban + Protobuf. Validation covers Luban source, Protobuf source and `go test ./...` for the enabled game server module.
 
 ### Luban
 
@@ -63,7 +68,7 @@ Default outputs:
 <outputRoot>/bin
 ```
 
-Rust is opt-in via the game's `languages` list.
+A game enabling Go generation must provide `luban.goModule`. Rust is opt-in via the game's `languages` list.
 
 ### Protobuf
 
@@ -73,4 +78,4 @@ Rust is opt-in via the game's `languages` list.
 └── Go
 ```
 
-No system `protoc` or global `protoc-gen-go` is used by Framework generation.
+Framework generation uses its own pinned `grpc-tools`, `ts-proto` and `protoc-gen-go`; games do not install or version these independently.
