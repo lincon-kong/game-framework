@@ -14,13 +14,13 @@ export function toolHome() {
 }
 
 export function lubanRoot() {
-  return resolve(toolHome(), "luban", toolchain.luban.version);
+  return resolve(toolingRoot, "luban", "vendor");
 }
 
 export function lubanDll() {
   const path = resolve(lubanRoot(), "Luban", "Luban.dll");
   if (!existsSync(path)) {
-    throw new Error(`Luban ${toolchain.luban.version} is not installed: ${path}. Run: node framework/tooling/install.mjs`);
+    throw new Error(`Committed Luban ${toolchain.luban.version} is missing: ${path}. Restore/update the game-framework checkout.`);
   }
   return path;
 }
@@ -30,7 +30,7 @@ export function sharedNodeRoot() {
   return resolve(
     toolHome(),
     "node",
-    `tsproto-${pb.tsProto}_grpc-${pb.grpcTools}_buf-${pb.bufbuildProtobuf}_7zip-${pb.sevenZipBin}`,
+    `tsproto-${pb.tsProto}_grpc-${pb.grpcTools}_buf-${pb.bufbuildProtobuf}`,
   );
 }
 
