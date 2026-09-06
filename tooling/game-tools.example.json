@@ -8,6 +8,7 @@
     "config": "data/luban.conf",
     "target": "all",
     "languages": ["typescript", "go"],
+    "goModule": "example-game/server/generated/config",
     "outputRoot": "data/generated"
   },
   "protobuf": {
