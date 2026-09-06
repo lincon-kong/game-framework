@@ -52,13 +52,14 @@ try {
   mkdirSync(binaryOutput, { recursive: true });
 
   const args = [lubanDll, "--conf", configPath, "-t", section.target ?? "all"];
+  if (uniqueLanguages.includes("go")) args.push("-x", `lubanGoModule=${section.goModule}`);
+
   for (const language of uniqueLanguages) {
     const codeTarget = codeTargets.get(language);
     const output = join(generatedRoot, codeTarget);
     rmSync(output, { recursive: true, force: true });
     mkdirSync(output, { recursive: true });
     args.push("-c", codeTarget, "-x", `${codeTarget}.outputCodeDir=${output}`);
-    if (language === "go") args.push("-x", `${codeTarget}.lubanGoModule=${section.goModule}`);
   }
   args.push("-d", "bin", "-x", `bin.outputDataDir=${binaryOutput}`);
 
