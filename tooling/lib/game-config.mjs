@@ -41,7 +41,7 @@ export function requireSection(config, name) {
 export function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     stdio: "inherit",
-    shell: false,
+    shell: process.platform === "win32" && command.toLowerCase().endsWith(".cmd"),
     ...options,
   });
   if (result.error) {

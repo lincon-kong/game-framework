@@ -9,7 +9,12 @@ import {
 } from "./lib/toolchain.mjs";
 
 function run(command, args, cwd = toolingRoot, env = process.env) {
-  const result = spawnSync(command, args, { cwd, stdio: "inherit", shell: false, env });
+  const result = spawnSync(command, args, {
+    cwd,
+    stdio: "inherit",
+    shell: process.platform === "win32" && command.toLowerCase().endsWith(".cmd"),
+    env,
+  });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${command} exited with ${result.status}`);
 }

@@ -28,7 +28,10 @@ function add(level, name, detail, fix) {
 }
 
 function commandVersion(command, args = ["--version"]) {
-  const result = spawnSync(command, args, { encoding: "utf8", shell: false });
+  const result = spawnSync(command, args, {
+    encoding: "utf8",
+    shell: process.platform === "win32" && command.toLowerCase().endsWith(".cmd"),
+  });
   if (result.error || result.status !== 0) return undefined;
   return `${result.stdout ?? ""}${result.stderr ?? ""}`.trim().split(/\r?\n/)[0];
 }
@@ -107,11 +110,70 @@ function checkGo() {
   add("OK", "Go", version);
 }
 
-function checkOptionalRust() {
+function findRepositoryFile(name, start) {
+  let directory = resolve(start);
+  while (true) {
+    const candidate = resolve(directory, name);
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(directory);
+    if (parent === directory) return undefined;
+    directory = parent;
+  }
+}
+
+function checkNode() {
+  const configPath = findRepositoryFile(".node-version", process.cwd()) ?? findRepositoryFile(".node-version", frameworkRoot);
+  const version = commandVersion("node", ["--version"]);
+  if (!configPath) {
+    add("ERROR", "Node", ".node-version not found", "Run the doctor from a game repository that declares its Node version.");
+    return;
+  }
+  if (!version) {
+    add("ERROR", "Node", "node not available on PATH", `Install Node ${readFileSync(configPath, "utf8").trim()}.`);
+    return;
+  }
+  const expected = readFileSync(configPath, "utf8").trim();
+  const actual = version.replace(/^v/, "");
+  if (actual !== expected) {
+    add("ERROR", "Node", `${version}; expected ${expected} from ${configPath}`, `Install Node ${expected}.`);
+    return;
+  }
+  add("OK", "Node", version);
+}
+
+function checkRust() {
+  const configPath = findRepositoryFile("rust-toolchain.toml", process.cwd()) ?? findRepositoryFile("rust-toolchain.toml", frameworkRoot);
+  if (!configPath) {
+    add("ERROR", "Rust", "rust-toolchain.toml not found", "Run the doctor from a game repository that declares its Rust toolchain.");
+    return;
+  }
+
+  const config = readFileSync(configPath, "utf8");
+  const expected = config.match(/^\s*channel\s*=\s*"([^"]+)"\s*$/m)?.[1];
+  if (!expected) {
+    add("ERROR", "Rust", `${configPath} does not declare a toolchain channel`, "Set [toolchain].channel in rust-toolchain.toml.");
+    return;
+  }
+
   const rustc = commandVersion("rustc", ["--version"]);
   const cargo = commandVersion("cargo", ["--version"]);
-  if (rustc && cargo) add("INFO", "optional Rust", `${rustc}; ${cargo}`);
-  else add("INFO", "optional Rust", "not installed; only required by games that own Rust/WASM or a future Rust GameServer");
+  if (!rustc || !cargo) {
+    add("ERROR", "Rust", "rustc or cargo not available on PATH", `Install Rust ${expected} through rustup.`);
+    return;
+  }
+  const actual = rustc.match(/rustc\s+(\d+\.\d+\.\d+)/)?.[1];
+  if (actual !== expected) {
+    add("ERROR", "Rust", `${rustc}; expected ${expected} from ${configPath}`, `Run rustup show from the repository root to install Rust ${expected}.`);
+    return;
+  }
+
+  const targets = spawnSync("rustup", ["target", "list", "--installed"], { encoding: "utf8", shell: false });
+  const installed = targets.status === 0 ? targets.stdout ?? "" : "";
+  if (!installed.split(/\r?\n/).includes("wasm32-unknown-unknown")) {
+    add("ERROR", "Rust target", "wasm32-unknown-unknown not installed", "Run: rustup target add wasm32-unknown-unknown");
+    return;
+  }
+  add("OK", "Rust", `${rustc}; ${cargo}; wasm32-unknown-unknown`);
 }
 
 function checkWritableDirectory() {
@@ -234,11 +296,11 @@ function checkPathConflicts() {
 
 checkPlatform();
 checkWritableDirectory();
-checkBaseCommand("node", ["--version"], 18);
+checkNode();
 checkBaseCommand(process.platform === "win32" ? "npm.cmd" : "npm", ["--version"]);
 checkGo();
 checkDotnet();
-checkOptionalRust();
+checkRust();
 checkJunctionOrSymlink();
 checkEnvironmentOverrides();
 checkPathConflicts();
