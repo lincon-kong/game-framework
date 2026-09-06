@@ -5,7 +5,6 @@ const forwarded = process.argv.slice(2);
 
 try {
   run(process.execPath, [join(toolingRoot, "luban", "generate.mjs"), ...forwarded]);
-  run(process.execPath, [join(toolingRoot, "spacetime", "run.mjs"), "generate", ...forwarded]);
   run(process.execPath, [join(toolingRoot, "protobuf", "generate.mjs"), ...forwarded]);
 } catch (error) {
   console.error(error.message);

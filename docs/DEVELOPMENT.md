@@ -9,8 +9,6 @@ game-framework.git
 bounce-ball.git
 ```
 
-BounceBall owns concrete game client/server/domain/config/protocol source. Framework is the only cross-repository dependency.
-
 Recommended local shape:
 
 ```text
@@ -27,138 +25,85 @@ Goal: **multi-repository in Git, monorepo-like in the local editor/build**.
 
 ## 2. Framework commit is the dependency lock
 
-```text
-BounceBall commit B -> Framework commit F
-```
+A released game pins an exact Framework commit/tag. That pointer pins Framework source, `server/go.mod` runtime baselines and `tooling/toolchain.json` codegen/tool baselines.
 
-That pointer pins both Framework runtime source and the complete Framework toolchain baseline. Do not maintain a second manual dependency/version map.
+Do not automatically follow Framework `master` in released builds.
 
-Released builds must never automatically follow Framework `main/master`.
+## 3. Game-owned content
 
-## 3. Framework changes while developing a game
+Keep in the game:
 
-```text
-1. decide whether capability is truly framework-level
-2. edit Framework source directly
-3. validate it against the game
-4. commit Framework independently
-5. update the game's Framework submodule pointer
-6. commit game integration
-```
-
-Keep fixes/features/refactors separable where practical.
-
-## 4. Game-owned content
-
-Keep these in the game:
-
-- game rules and feature orchestration;
-- concrete SpacetimeDB tables/reducers/services/jobs;
+- concrete game rules/features;
+- Go application/domain code;
+- database schemas/migrations;
+- platform app IDs/secrets/product definitions;
 - concrete PB messages;
 - concrete Luban schemas/tables/content;
 - presentation/UI;
-- game-specific WASM/GameCore ABI behavior;
-- game-specific paths/targets in `game-tools.json`.
+- game-specific WASM/Rust GameCore behavior;
+- game-specific paths in `game-tools.json`.
 
-Framework owns reusable runtime mechanisms and the shared toolchain.
+Framework owns reusable mechanisms and dependency/tool baselines.
 
-## 5. Toolchain ownership
+## 4. Go server development
 
-Framework owns and pins:
-
-```text
-Luban distribution/runtime dependencies
-SpacetimeDB CLI
-SpacetimeDB Rust module SDK baseline
-SpacetimeDB TypeScript SDK baseline
-PB protoc/compiler
-ts-proto + TypeScript runtime
-prost-build + protoc-bin-vendored
-all generation/validation scripts
-```
-
-Version authority:
+Framework server baseline:
 
 ```text
-framework/tooling/toolchain.json
+Go >= 1.25
+Pitaya v2.11.24
 ```
 
-Games must not choose independent versions.
+A consuming game normally owns its own `server/go.mod` and references the Framework server module. With a checked-out Framework submodule, local development may use a `replace` directive or `go.work`; released builds still pin the exact Framework repository commit.
 
-## 6. Install once per machine
+Pitaya standalone mode is the default local path. Do not require etcd/NATS for local development unless the game is explicitly testing cluster behavior.
 
-The Framework toolchain is **not installed into each project checkout**.
+Typical server validation:
 
-Run once on a development machine:
+```bash
+go test ./...
+```
+
+The aggregate Framework command runs the same check when the `server` section is enabled in `game-tools.json`.
+
+## 5. Install once per machine
 
 ```bash
 node framework/tooling/install.mjs
+node framework/tooling/doctor.mjs
 ```
 
-Default shared cache:
+Shared codegen cache:
 
 ```text
 ~/.game-framework/tools/
 ├── luban/<version>/
-├── spacetime/<version>/<platform>/
 ├── node/<version-set>/
-└── protobuf/rust/<version-set>/
+└── protobuf/go/protoc-gen-go-<version>/bin/
 ```
 
-Override when required:
+Go itself is not downloaded by Framework; install a supported Go toolchain normally.
 
-```text
-GAME_FRAMEWORK_TOOL_HOME=/custom/path
-```
-
-The installer is idempotent. A second game using the same Framework tool versions reuses the existing files and does not download/build them again.
-
-When Framework later pins new versions, they install side-by-side. An older game pinned to an older Framework commit can continue using its older cached tools.
-
-`bootstrap.mjs` is only a backward-compatible alias to `install.mjs`.
-
-## 7. Per-game setup is linking, not installation
-
-Each game owns only root `game-tools.json`, based on:
-
-```text
-framework/tooling/game-tools.example.json
-```
-
-Generated TypeScript may require runtime npm packages. Framework installs those packages once into the shared cache.
-
-When generation needs them, Framework creates lightweight links under the game's ignored `node_modules`:
-
-```text
-SpacetimeDB bindings -> shared spacetimedb runtime
-PB generated TS      -> shared @bufbuild/protobuf runtime
-```
-
-No `npm install` is required per game for those Framework-owned dependencies.
-
-If a game already contains a conflicting version, generation must fail instead of silently drifting from the Framework baseline.
-
-## 8. Generated code/data
+## 6. Generated code/data
 
 Generated output is never manually edited.
 
 ```text
-SpacetimeDB game module
-    -> shared Framework-pinned spacetime CLI
-    -> client bindings
-
-Luban game schema/data
-    -> shared Framework-pinned Luban
-    -> TypeScript readers + Rust readers + one shared binary data set
+Luban source
+    -> TypeScript readers
+    -> Go readers
+    -> shared binary data
 
 Game .proto
-    -> shared Framework PB toolchain
-    -> TypeScript + Rust
+    -> TypeScript
+    -> Go
 ```
+
+Rust output is opt-in only when a real Rust consumer exists.
 
 Do not create independent client/server schema copies.
 
-## 9. Daily generation/validation
+## 7. Daily generation/validation
 
 From the consuming game root:
 
@@ -167,56 +112,49 @@ node framework/tooling/scripts/generate-all.mjs
 node framework/tooling/scripts/validate-all.mjs
 ```
 
-Individual commands remain available:
+Individual commands:
 
 ```bash
 node framework/tooling/luban/generate.mjs
 node framework/tooling/protobuf/generate.mjs
-node framework/tooling/spacetime/run.mjs generate
-node framework/tooling/spacetime/run.mjs build
+node framework/tooling/go/validate.mjs
 ```
 
-These commands resolve Framework-owned tools from the shared cache, never from a game-local copy or arbitrary PATH version.
+## 8. Commercial/server testing
 
-## 10. SpacetimeDB development
+Prefer tests around the real failure boundaries:
 
-Normal backend path is direct SpacetimeDB.
+- provider login verification;
+- payment signatures/callback replay;
+- idempotent order/reward settlement;
+- PostgreSQL transaction rollback;
+- session/reconnect behavior;
+- protocol compatibility.
 
-Typical loop:
+Do not fill Framework with generic mock-heavy layers that exist only to satisfy an architecture diagram.
 
-```bash
-node framework/tooling/spacetime/run.mjs dev
-```
+## 9. Future Rust GameServer
 
-or:
+When a game proves it needs heavier realtime performance, add Rust as a separate GameServer process or game-owned module.
 
-```bash
-node framework/tooling/spacetime/run.mjs build
-node framework/tooling/spacetime/run.mjs generate
-node framework/tooling/spacetime/run.mjs publish
-```
-
-Use Framework common Rust helpers through a path dependency where useful, while concrete game reducers/tables use SpacetimeDB directly.
-
-Do not insert Adapter/Repository/Port layers merely for backend interchangeability.
-
-## 11. Framework/toolchain upgrades
-
-Upgrade shared tools in Framework only.
+The stable contract should be narrow:
 
 ```text
-Framework F1
-  -> old aligned toolchain
-
-Framework F2
-  -> validated newer aligned toolchain
+Go -> allocation/join token/control
+Client <-> Rust -> realtime gameplay
+Rust -> Go -> authenticated match result
 ```
 
-A game remains on F1 until its Framework pointer is deliberately moved to F2.
+Do not move payment/mail/activity/account logic into Rust simply because battle simulation uses Rust.
 
-Prefer an aligned SpacetimeDB CLI/Rust/TypeScript baseline over independently upgrading one component.
+## 10. Upgrades
 
-## 12. Versioning
+- Go/Pitaya runtime dependency upgrades happen in Framework `server/go.mod`.
+- Luban/PB generator upgrades happen in `tooling/toolchain.json`.
+- Validate Framework first, then deliberately move each game's Framework pointer.
+- Prefer released Pitaya versions over tracking `main`.
+
+## 11. Versioning
 
 While Framework is being established, exact Git commits are sufficient.
 
@@ -224,42 +162,6 @@ Once released games stabilize the baseline:
 
 ```text
 PATCH  bug fix / behavior-preserving optimization
-MINOR  backward-compatible capability/toolchain update
+MINOR  backward-compatible capability/dependency update
 MAJOR  intentional breaking contract/semantic change
 ```
-
-A tool upgrade that changes generated/runtime contracts may require explicit migration even if Framework API surface looks unchanged.
-
-## 13. CI/release
-
-Released builds must be reproducible:
-
-- game records exact Framework commit;
-- Framework records exact tool/SDK versions and release checksums;
-- CI checks out the recorded Framework submodule;
-- CI may use a persistent shared tool cache keyed by `toolchain.json`;
-- on a cache miss, CI runs `node framework/tooling/install.mjs` once;
-- generated/config/protocol outputs are validated against the pinned toolchain.
-
-A typical integration validation becomes:
-
-```text
-Framework contracts/toolchain
--> Luban source/generation
--> SpacetimeDB build + bindings
--> PB validation/generation when enabled
--> GameCore tests
--> WASM build when applicable
--> client build/tests
-```
-
-## 14. Branches and future permission split
-
-Keep branches simple during single-developer/high-velocity work:
-
-```text
-main/master
-feature/* when useful
-```
-
-If a future team requires client/server read-permission separation, the game may later split into `game-client.git`, `game-server.git`, and `game-shared.git`. `game-framework.git` remains shared and continues owning the common toolchain.

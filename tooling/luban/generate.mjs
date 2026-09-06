@@ -3,6 +3,12 @@ import { join } from "node:path";
 import { gamePath, loadGameConfig, requireSection, run } from "../lib/game-config.mjs";
 import { loadLubanSource, resolveLubanDll } from "./lib.mjs";
 
+const codeTargets = new Map([
+  ["typescript", "typescript-bin"],
+  ["go", "go-bin"],
+  ["rust", "rust-bin"],
+]);
+
 let lockHandle;
 let lockPath;
 
@@ -14,11 +20,16 @@ try {
     process.exit(0);
   }
 
+  const languages = section.languages ?? ["typescript", "go"];
+  if (!Array.isArray(languages) || languages.length === 0) throw new Error("Luban languages must be a non-empty array");
+  const uniqueLanguages = [...new Set(languages)];
+  for (const language of uniqueLanguages) {
+    if (!codeTargets.has(language)) throw new Error(`Unsupported Luban language: ${language}`);
+  }
+
   const { configPath } = loadLubanSource(gameRoot, section);
   const lubanDll = resolveLubanDll(gameRoot, section);
   const generatedRoot = gamePath(gameRoot, section.outputRoot ?? "data/generated");
-  const typescriptOutput = join(generatedRoot, "typescript-bin");
-  const rustOutput = join(generatedRoot, "rust-bin");
   const binaryOutput = join(generatedRoot, "bin");
 
   mkdirSync(generatedRoot, { recursive: true });
@@ -34,25 +45,21 @@ try {
     }
   }
 
-  for (const directory of [typescriptOutput, rustOutput, binaryOutput]) {
-    rmSync(directory, { recursive: true, force: true });
-    mkdirSync(directory, { recursive: true });
+  rmSync(binaryOutput, { recursive: true, force: true });
+  mkdirSync(binaryOutput, { recursive: true });
+
+  const args = [lubanDll, "--conf", configPath, "-t", section.target ?? "all"];
+  for (const language of uniqueLanguages) {
+    const codeTarget = codeTargets.get(language);
+    const output = join(generatedRoot, codeTarget);
+    rmSync(output, { recursive: true, force: true });
+    mkdirSync(output, { recursive: true });
+    args.push("-c", codeTarget, "-x", `${codeTarget}.outputCodeDir=${output}`);
   }
+  args.push("-d", "bin", "-x", `bin.outputDataDir=${binaryOutput}`);
 
-  const target = section.target ?? "all";
-  run("dotnet", [
-    lubanDll,
-    "--conf", configPath,
-    "-t", target,
-    "-c", "typescript-bin",
-    "-c", "rust-bin",
-    "-d", "bin",
-    "-x", `typescript-bin.outputCodeDir=${typescriptOutput}`,
-    "-x", `rust-bin.outputCodeDir=${rustOutput}`,
-    "-x", `bin.outputDataDir=${binaryOutput}`,
-  ], { cwd: gameRoot });
-
-  console.log(`Luban generated: ${generatedRoot}`);
+  run("dotnet", args, { cwd: gameRoot });
+  console.log(`Luban generated: ${generatedRoot} (${uniqueLanguages.join(", ")})`);
 } catch (error) {
   console.error(error.message);
   process.exitCode = 1;

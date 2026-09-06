@@ -9,42 +9,23 @@ game-framework/
 ├── AGENTS.md
 ├── README.md
 ├── client/
-│   ├── src/
-│   ├── tests/
 │   └── README.md
 ├── server/
-│   ├── spacetime/
-│   │   ├── Cargo.toml
-│   │   ├── src/lib.rs
+│   ├── go.mod
+│   ├── pitaya/
+│   │   ├── app.go
 │   │   └── README.md
-│   ├── native/                  # only when a real game needs it
 │   └── README.md
 ├── tooling/
-│   ├── toolchain.json           # version/checksum authority
-│   ├── install.mjs              # machine-level shared installer
-│   ├── bootstrap.mjs            # compatibility alias
-│   ├── package.json
+│   ├── toolchain.json
+│   ├── install.mjs
+│   ├── doctor.mjs
 │   ├── game-tools.example.json
 │   ├── lib/
-│   │   ├── game-config.mjs
-│   │   └── toolchain.mjs
-│   ├── spacetime/
-│   │   ├── run.mjs
-│   │   └── README.md
+│   ├── go/
 │   ├── luban/
-│   │   ├── lib.mjs
-│   │   ├── validate.mjs
-│   │   ├── generate.mjs
-│   │   └── README.md
 │   ├── protobuf/
-│   │   ├── lib.mjs
-│   │   ├── validate.mjs
-│   │   ├── generate.mjs
-│   │   ├── rust-codegen/
-│   │   └── README.md
 │   ├── scripts/
-│   │   ├── generate-all.mjs
-│   │   └── validate-all.mjs
 │   └── README.md
 └── docs/
     ├── ARCHITECTURE.md
@@ -54,124 +35,86 @@ game-framework/
     └── DEVELOPMENT.md
 ```
 
-External tool binaries are intentionally not duplicated in each Framework checkout.
+Do not create empty framework packages for hypothetical systems. Add packages as real consumers appear.
 
-## 2. Shared machine-level tool home
+## 2. Client ownership
 
-`tooling/install.mjs` installs the Framework-pinned toolchain once per machine.
+`client/` contains reusable TypeScript/Laya runtime mechanisms only: lifecycle, asset/package/router/UI/event/timer/update/pool/entity/FSM/module/network/storage/log/crash/performance/WASM/error/Laya integration and focused tests.
 
-Default:
+Concrete game routes, controllers, assets, APIs and gameplay remain game-owned.
+
+## 3. Server ownership
+
+### `server/go.mod`
+
+Go runtime dependency authority for the reusable server module. It pins the supported Pitaya baseline.
+
+### `server/pitaya/`
+
+Thin Pitaya integration helpers/conventions only. Do not hide the entire Pitaya API behind a second framework API, and do not place game business logic here.
+
+Future generic server packages may be added only when proven reusable, for example:
+
+```text
+server/
+├── platform/       provider/auth primitives
+├── storage/        generic PostgreSQL primitives
+├── commercial/     idempotency/order/reward transaction primitives
+└── realtime/       only after a real Go realtime game needs shared code
+```
+
+A future Rust GameServer foundation is added only when a real game requires it; there is no empty Rust server skeleton today.
+
+## 4. Shared machine-level tool home
+
+`tooling/install.mjs` installs code-generation tools once per machine.
 
 ```text
 ~/.game-framework/tools/
 ├── luban/<version>/
-│   ├── Luban/
-│   └── LICENSE
-├── spacetime/<version>/<platform>/
-│   └── spacetime[.exe]
 ├── node/<version-set>/
-│   └── node_modules/
-└── protobuf/rust/<version-set>/
-    └── bin/game-framework-protobuf-rust-codegen[.exe]
+└── protobuf/go/protoc-gen-go-<version>/bin/
 ```
 
-`GAME_FRAMEWORK_TOOL_HOME` may override the root.
+Go, Node/npm and .NET remain normal machine toolchains.
 
-Different games and different Framework checkouts reuse the same installed version directories. New versions are installed side-by-side.
-
-## 3. Root ownership
-
-### `README.md`
-Repository entry point and documentation index.
-
-### `AGENTS.md`
-Mandatory rules for humans/Codex/automated contributors.
-
-### `docs/`
-Long-lived architecture authority. Do not store temporary task plans/status logs here.
-
-## 4. Client ownership
-
-`client/` contains reusable TypeScript/Laya runtime mechanisms only: lifecycle, asset/package/router/UI/event/timer/update/pool/entity/FSM/module/network/storage/log/crash/performance/WASM/error/Laya integration and focused tests.
-
-Concrete game routes, UI, controllers, models, assets, APIs and gameplay remain game-owned.
-
-## 5. Server ownership
-
-### `server/spacetime/`
-Reusable Rust crate for the default **direct SpacetimeDB** backend model.
-
-It owns the Framework-supported Rust SpacetimeDB SDK baseline and reusable helpers/types. It is not an Adapter/Repository/Port abstraction.
-
-Concrete player/inventory/quest/economy/stage/battle tables and reducers stay in the game repository.
-
-### `server/native/`
-Reserved for native Rust server foundations only when a real consumer requires dedicated process/realtime behavior.
-
-There is intentionally no baseline persistence Adapter/Repository layer.
-
-## 6. Tooling ownership
+## 5. Tooling ownership
 
 ### `tooling/toolchain.json`
-Single authority for tool/compiler/CLI/SDK versions and release checksums.
+Machine-tool/code-generator version authority.
 
 ### `tooling/install.mjs`
-Idempotent machine-level installer. It downloads/builds only missing pinned versions into the shared tool home.
+Idempotent machine-level installer for Luban and PB codegen dependencies.
 
-### `tooling/game-tools.example.json`
-Canonical per-game **path/target** configuration. It must never contain tool versions or game-local binary paths.
-
-### `tooling/lib/`
-Shared config/path/process/toolchain resolution, including shared cache and runtime-link handling.
-
-### `tooling/spacetime/`
-Wrappers for build, bindings generation, local dev and publish. They resolve the shared pinned SpacetimeDB CLI.
+### `tooling/go/`
+Go module/test validation for consuming games.
 
 ### `tooling/luban/`
-Luban validation/generation logic. It resolves the shared pinned Luban distribution.
-
-Standard outputs:
-
-```text
-<outputRoot>/typescript-bin
-<outputRoot>/rust-bin
-<outputRoot>/bin
-```
+Luban validation/generation. Default language outputs are TypeScript + Go plus one binary data set; a game can opt into Rust output only when it owns a Rust consumer.
 
 ### `tooling/protobuf/`
-PB validation/generation logic and Rust codegen source.
-
-```text
-Game .proto
-    ├── TypeScript: shared protoc + ts-proto
-    └── Rust: shared compiled prost-build generator
-```
+One `.proto` source tree generates TypeScript and Go today. Rust codegen is deliberately not part of the baseline until a Rust protocol consumer is introduced.
 
 ### `tooling/scripts/`
-Aggregate developer/CI entry points: `generate-all.mjs` and `validate-all.mjs`.
+Aggregate `generate-all.mjs` / `validate-all.mjs` commands.
 
-## 7. Consuming game layout
+## 6. Consuming game layout
 
 ```text
 game-repo/
 ├── framework/                  # game-framework Git submodule
-├── game-tools.json             # paths only
-├── node_modules/               # ignored; Framework may create shared-runtime links
+├── game-tools.json
 ├── client/
-│   └── generated/
-│       ├── spacetime/
-│       └── protocol/
+│   └── generated/protocol/
 ├── server/
-│   ├── spacetime/
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── tables/
-│   │       ├── reducers/
-│   │       ├── services/
-│   │       └── jobs/
-│   └── native/                 # only when needed
+│   ├── go.mod
+│   ├── cmd/
+│   ├── app/
+│   ├── domain/
+│   ├── storage/
+│   ├── platform/
+│   └── generated/protocol/
 ├── shared/
-│   ├── core/
 │   └── protocol/
 ├── data/
 │   ├── Datas/
@@ -180,6 +123,8 @@ game-repo/
 └── docs/
 ```
 
+If a game later needs a heavy Rust GameServer, it may add a game-owned Rust module/process beside the Go server. Do not force that shape on games that do not need it.
+
 Dependency direction:
 
 ```text
@@ -187,31 +132,8 @@ client/server/shared -> framework
 framework -X-> concrete game
 ```
 
-## 8. Ownership invariant
+## 7. Ownership invariant
 
-```text
-Framework owns:
-  reusable runtime/framework source
-  tool/CLI/compiler/SDK versions
-  machine-level installation strategy
-  generation/validation logic
+Framework owns reusable runtime source, dependency baselines, generation/validation logic and machine-level codegen tooling.
 
-Game owns:
-  business source
-  concrete tables/reducers/messages/config data
-  source/output locations
-```
-
-Generated TypeScript runtime packages may be linked into a game's ignored `node_modules`, but they remain Framework-versioned shared dependencies, not game-managed installs.
-
-## 9. Placement checklist
-
-Before adding a file/dependency ask:
-
-1. Does it encode one game's rules, IDs, tables, messages or semantics? Keep it in the game.
-2. Is it a reusable technical mechanism/tool? Framework may own it.
-3. Is it a compiler, CLI, generator, SDK baseline or installation/version rule? Framework owns it.
-4. Is it a concrete SpacetimeDB table/reducer/service? Keep it in the game.
-5. Is it generated output? Change source/generator instead of hand-editing.
-6. Is an Adapter/Repository/Port proposed only to hide SpacetimeDB? Do not add it.
-7. Is a directory only for a hypothetical future feature? Do not create it yet.
+Games own business source, schemas/migrations, concrete messages/config data, gameplay and deployment secrets.

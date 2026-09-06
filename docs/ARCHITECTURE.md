@@ -4,7 +4,7 @@ This document is the architecture authority for `game-framework`.
 
 ## 1. Purpose
 
-`game-framework` provides reusable technical infrastructure and a shared toolchain for multiple games. It owns mechanisms and shared dependency baselines, not game rules.
+`game-framework` provides reusable technical infrastructure and a shared toolchain for multiple games. It owns mechanisms and dependency baselines, not concrete game rules.
 
 ```text
 Game repositories
@@ -13,7 +13,7 @@ Game repositories
 game-framework
       |
       +-- client runtime foundation
-      +-- server runtime foundation
+      +-- Go server foundation
       +-- shared toolchain + dependency versions
 ```
 
@@ -21,59 +21,17 @@ Dependency direction is one-way: games may depend on Framework; Framework must n
 
 ## 2. Repository boundary
 
-Allowed/owned in Framework:
+Framework may own lifecycle/loading/routing/network/WASM mechanisms, thin Pitaya integration, generic Go server primitives, generic persistence/commercial safety primitives, and shared Luban/Protobuf tooling.
 
-- lifecycle and ownership primitives;
-- package/resource loading;
-- routing and UI runtime primitives;
-- events, timers, update scheduling and pools;
-- logging, crash reporting and observability;
-- generic network/session mechanisms;
-- storage primitives used by the client;
-- WASM runtime mechanisms;
-- Laya engine adapters;
-- reusable SpacetimeDB-oriented server helpers;
-- reusable native realtime-server primitives;
-- Luban distribution and generation tooling;
-- SpacetimeDB CLI and supported SDK baseline;
-- Protobuf compiler/codegen dependencies and tooling;
-- version pinning/bootstrap/validation for shared tool dependencies.
-
-Must remain in each game repository:
-
-- game rules and authoritative game state;
-- concrete entities, skills, buffs, monsters, stages and combat logic;
-- player progression, economy, quests, activities and game-specific services;
-- concrete game Protobuf messages;
-- concrete game Luban schemas/tables/content and generated game data;
-- concrete SpacetimeDB tables/reducers owned by that game;
-- game UI, assets and presentation;
-- game-specific source/output path configuration;
-- secrets and environment-specific production configuration.
+Games own concrete gameplay, entities, player progression, economy values, products, quests, activities, concrete database schemas/migrations, concrete `.proto`, Luban content, UI/assets, and production secrets.
 
 Rule of thumb:
 
-> Framework defines **how a game runs and which shared toolchain it runs with**. A game repository defines **what that game is**.
+> Framework defines **how a game runs and which shared baseline it runs with**. A game repository defines **what that game is**.
 
-## 3. Logical layers
-
-```text
-Game Feature / Domain
-        |
-Client Framework or SpacetimeDB/Native Runtime
-        |
-Framework-owned dependency/tool baseline
-        |
-Engine / OS / Network / Database Runtime
-```
-
-Do not insert abstraction layers merely to make technologies appear interchangeable. Use a layer only when it solves a real ownership, reuse, testing or runtime problem.
-
-## 4. Client architecture
+## 3. Client architecture
 
 The client framework is TypeScript-first and initially targets LayaAir through adapters.
-
-Core ownership model:
 
 ```text
 AppScope
@@ -82,167 +40,110 @@ AppScope
           -> nested RouteScope
 ```
 
-Framework-owned resources are registered against an owner and released automatically when the owner is disposed. Parent disposal cascades to children. Async work must not commit resources or presentation state after ownership becomes inactive.
+Framework owns runtime mechanisms. Game code owns Controller/Model/View, business state, presentation and game rules.
 
-Primary client capabilities:
+Network is not a singleton assumption. A game may simultaneously keep:
 
 ```text
-Lifecycle
-Asset
-Package
-Router
-UI
-Event
-Timer
-Update
-Pool
-Entity runtime
-FSM
-Module extension
-Network transport
-Storage
-Log / Crash
-Perf hooks
-WASM runtime
-Laya adapters
+LobbyConnection -> Go / Pitaya
+GameConnection  -> optional realtime GameServer
 ```
-
-Framework owns runtime mechanisms and route/lifecycle topology. Game code owns Controller/Model/View, business state, presentation and game rules.
 
 See `docs/CLIENT.md`.
 
-## 5. Server architecture
+## 4. Server architecture
 
-The default backend is **direct SpacetimeDB**.
-
-```text
-Client
-  |
-  v
-SpacetimeDB generated bindings
-  |
-  v
-Game SpacetimeDB Module
-  ├── tables
-  ├── reducers
-  ├── services/domain logic
-  └── scheduled jobs
-```
-
-Do not add a generic Adapter/Repository/Port layer between game backend code and SpacetimeDB merely to preserve database independence.
-
-Concrete game tables/reducers live in the game repository and may use SpacetimeDB APIs directly.
-
-Framework owns the supported SpacetimeDB CLI/Rust SDK/TypeScript SDK baseline. A consuming game may physically resolve an SDK in npm/Cargo when required by generated code or compiler behavior, but it does not own the version decision.
-
-Pure deterministic Rust GameCore/domain code may remain platform-independent when it must be reused by client WASM, SpacetimeDB and/or native realtime servers.
-
-For high-frequency authoritative simulation, add a native Rust server only when a real requirement appears:
+The default server baseline is **Go + Pitaya + PostgreSQL**.
 
 ```text
-SpacetimeDB
- account / inventory / quest / matchmaking
-            |
-            v
-Native Rust Battle/World Server
- tick / simulation / AOI / replication
-            |
-            v
-SpacetimeDB
- validated result / settlement
+Laya Client
+    |
+    v
+Go Application
+├── Pitaya online boundary
+│   ├── connection/session
+│   ├── route/push/group
+│   └── cluster only when needed
+├── business/domain services
+│   ├── auth/player
+│   ├── reward/economy primitives
+│   ├── mail/activity
+│   ├── order/payment
+│   └── matchmaking/allocation
+└── PostgreSQL
 ```
 
-Native baseline when needed:
+Pitaya is not the domain model. Ordinary Go services should remain testable without a running Pitaya process.
 
-- Rust;
-- Tokio;
-- Axum where HTTP/WebSocket/admin/health endpoints are useful;
-- Protobuf/prost for explicit independent protocols;
-- tracing/tracing-subscriber;
-- Docker/Compose.
+Initial deployment should use Pitaya standalone mode. Do not require etcd/NATS/Redis just because Pitaya supports them. Introduce cluster infrastructure only when multiple Go processes/nodes need service discovery/RPC/coordination.
 
-Do not introduce PostgreSQL/SQLx/Redis into the baseline architecture unless a concrete future service independently requires them.
+## 5. Future heavy realtime server
 
-See `docs/SERVER.md`.
-
-## 6. Protocol, configuration and tool ownership
-
-Keep concerns separate:
+Do not start with a second server language merely for future-proofing. If a real game later needs materially heavier room simulation, add a separate Rust GameServer:
 
 ```text
-Luban      = static game/content configuration
-SpacetimeDB generated bindings = ordinary client/backend reducer/subscription contract
-Protobuf   = explicit independent protocol when needed
-Runtime config = TOML/JSON/environment variables
-Secrets    = environment/secret storage
+                 +-------------------+
+Client ----------> Go / Pitaya       |
+|                | login/lobby/match |
+|                | commerce          |
+|                +---------+---------+
+|                          |
+|                    join token/result
+|                          |
+|                +---------v---------+
++----------------> Rust GameServer   |
+                 | room/tick/AI      |
+                 | combat/sync       |
+                 +-------------------+
 ```
 
-Source ownership:
+The client connects directly to the GameServer. Go remains authoritative for commercial account settlement; Rust remains authoritative for the live match state. High-frequency frames should not bounce through Go by default.
+
+For light realtime games, Go/Pitaya may host the room directly. Split to Rust only after requirements/profiling justify it.
+
+## 6. Persistence and commercial state
+
+PostgreSQL is the default durable source of truth.
+
+Commercially sensitive mutations should converge on a small set of reusable principles:
+
+- transaction boundaries;
+- idempotency keys;
+- source/audit records;
+- server-side payment verification;
+- explicit entitlement/reward settlement;
+- no trust in client-side currency/inventory state.
+
+Do not build a giant generic live-ops platform before real games require it. Extract reusable primitives from actual implementations.
+
+Redis is optional cache/coordination. It is not the authoritative store for paid currency or durable player ownership.
+
+## 7. Protocol, configuration and dependency ownership
 
 ```text
-Game owns:
-  Luban schemas/tables/content
-  concrete .proto
-  concrete SpacetimeDB module
-
-Framework owns:
-  Luban executable/runtime dependencies
-  PB compiler/codegen dependencies
-  SpacetimeDB CLI/SDK baseline
-  generate/validate/bootstrap tooling
+Luban       = static game/content configuration
+PostgreSQL  = durable runtime/business state
+Pitaya      = online runtime/session/routing mechanism
+Protobuf    = explicit protocol when useful
+Env/JSON    = deployment/runtime settings
+Secrets     = secret/environment storage
 ```
 
-Concrete game PB schemas and Luban tables live in the game repository, not in `game-framework`.
-
-Do not duplicate a SpacetimeDB reducer/subscription interface into Protobuf merely to make every transport look identical.
-
-## 7. Framework-to-game relationship
-
-Current repository model:
+Framework version authorities:
 
 ```text
-game-framework.git
-bounce-ball.git
+server/go.mod             Go runtime dependencies (Pitaya, etc.)
+tooling/toolchain.json    machine/code-generation tools
 ```
 
-During active development, a game may compile Framework source directly, including through a Git submodule. A released game pins an exact Framework commit/tag so historical builds remain reproducible.
-
-That one Framework pointer pins both runtime source and the shared toolchain/dependency baseline.
-
-The game repository owns:
-
-```text
-client/
-server/
-shared/
-  core/
-  protocol/
-data/
-  Datas/
-  luban.conf
-```
-
-Framework owns reusable technical mechanisms and shared dependency/toolchain baselines.
+Concrete game protocol/config schemas remain in the game repository.
 
 ## 8. Evolution rules
 
-- Prefer additive, backward-compatible Framework changes.
-- Existing behavior must not change silently.
-- Do not promote game code merely because it might be reused later.
-- Extract a capability when it is demonstrably generic or intrinsic to the runtime layer.
-- Shared compiler/CLI/SDK versions are upgraded in Framework only, then validated before consumers move.
-- Keep bug fixes independently reviewable/backportable where practical.
-- Avoid frequent major versions.
-- Do not create empty architecture layers before a real consumer requires them.
-- Do not add Adapter/Repository layers without a concrete need.
-
-## 9. Architecture authority
-
-For this repository, use this order:
-
-1. nearest `AGENTS.md`;
-2. `docs/ARCHITECTURE.md`;
-3. `docs/CLIENT.md` / `docs/SERVER.md`;
-4. `docs/REPOSITORY_LAYOUT.md`;
-5. `docs/DEVELOPMENT.md`;
-6. current source/build/test guards.
+- Prefer simple standalone deployment first.
+- Do not introduce service discovery, message buses or distributed actors without a real multi-node requirement.
+- Do not create a native Rust server before a game requires it.
+- Do not wrap Pitaya behind a large fake framework abstraction; isolate only the boundary needed to keep domain code independent.
+- Do not add generic Repository/Service/UseCase layers for architectural appearance.
+- Add reusable commercial primitives only when semantics are truly stable across games.
+- Shared dependency versions are upgraded in Framework and validated before games move their Framework pointer.

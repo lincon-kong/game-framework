@@ -21,20 +21,19 @@ Framework defines **how a game runs**. Each game repository defines **what that 
 game-framework/
 ├── client/              reusable TypeScript/Laya runtime
 ├── server/
-│   └── spacetime/       reusable direct SpacetimeDB Rust source + SDK baseline
+│   ├── go.mod           Go server dependency baseline
+│   └── pitaya/          thin Pitaya integration helpers
 ├── tooling/
-│   ├── toolchain.json   shared dependency/version authority
+│   ├── toolchain.json   shared machine-tool/version authority
 │   ├── install.mjs      one-time machine-level tool installer
 │   ├── doctor.mjs       cross-platform environment/toolchain diagnosis
-│   ├── spacetime/       build/dev/publish/bindings wrapper
+│   ├── go/              Go validation wrapper
 │   ├── luban/           generation/validation wrapper
-│   ├── protobuf/        PB validation/codegen source
+│   ├── protobuf/        TS/Go PB validation/codegen
 │   └── scripts/         generate-all / validate-all
 ├── docs/
 └── AGENTS.md
 ```
-
-External tool binaries are not duplicated inside every game checkout. The Framework installer places the pinned toolchain in a shared user-level cache.
 
 ## Technology baseline
 
@@ -43,53 +42,63 @@ Client:
 - TypeScript 5.x;
 - LayaAir 3.x integration;
 - owner-based lifecycle/resource management;
-- source-direct local development where practical.
+- multiple independent network connections are allowed; do not assume one global socket.
 
 Backend:
 
-- Rust stable / edition 2024;
-- **direct SpacetimeDB** for ordinary game/application backend state;
-- no Adapter/Repository/Port layer merely to hide SpacetimeDB;
-- native Rust/Tokio/Axum only when a dedicated service or realtime battle/world server is actually needed;
-- Protobuf/prost only for explicit independent protocol boundaries.
+- Go 1.25+;
+- Pitaya v2.11.24 as the default online/session/game-server framework baseline;
+- PostgreSQL as the default durable business-state store;
+- standalone Pitaya first; etcd/NATS/Redis are optional and introduced only when their scaling/use case exists;
+- business/domain code stays ordinary Go and should not depend on Pitaya types unless it is at the transport/runtime boundary;
+- a separate native Rust GameServer is an optional future path for genuinely CPU-heavy realtime simulation.
 
 Configuration/protocol:
 
 - Luban = static game/content configuration;
-- SpacetimeDB tables = runtime/application state;
-- SpacetimeDB generated bindings = normal direct client/backend contract;
-- Protobuf = explicit independent protocol where needed.
+- PostgreSQL = durable account/player/commercial state;
+- Protobuf = explicit client/server or service protocol where useful;
+- Pitaya route/session/group APIs = online runtime mechanisms, not the business-domain model.
 
-Concrete game Luban tables, `.proto` messages, SpacetimeDB tables/reducers and game rules stay in each game repository.
+Concrete game tables, messages, game rules, payment products and activities stay in each game repository.
+
+## Server topology
+
+Current/default topology:
+
+```text
+Laya Client
+    |
+    v
+Go / Pitaya
+├── login/session
+├── lobby/push
+├── commercial APIs
+├── matchmaking/room allocation when needed
+└── PostgreSQL
+```
+
+Future heavy realtime topology, only when required:
+
+```text
+                 +--> Go / Pitaya
+Laya Client -----|    login/lobby/commercial/match
+                 |
+                 +--> Rust GameServer
+                      room/tick/AI/combat/sync
+```
+
+The client connects directly to the Rust GameServer with a short-lived join token. High-frequency battle traffic must not be proxied through Go merely for architectural symmetry.
 
 ## Dependency ownership
 
-**Shared tooling/compiler/CLI/SDK version decisions belong to Framework, not individual games.**
+- [`server/go.mod`](./server/go.mod) is the authority for Framework Go runtime dependencies such as Pitaya.
+- [`tooling/toolchain.json`](./tooling/toolchain.json) is the authority for machine-installed/code-generation tools.
+- Games pin an exact Framework commit/tag and do not independently choose incompatible Framework dependency versions.
 
-Framework owns and pins:
-
-- Luban distribution and runtime dependencies;
-- SpacetimeDB CLI baseline;
-- SpacetimeDB Rust/TypeScript SDK baseline;
-- protoc used by PB generation;
-- ts-proto and its TS runtime;
-- prost-build/protoc-bin-vendored;
-- generation/validation scripts.
-
-The version authority is [`tooling/toolchain.json`](./tooling/toolchain.json).
-
-A game owns only concrete source and path configuration:
-
-```text
-SpacetimeDB module source
-.proto source
-Luban schemas/tables/content
-game-tools.json
-```
+Current server baseline pins Pitaya `v2.11.24`. The release requires Go `1.25+`.
 
 ## Install once per machine
-
-With any Framework checkout available, run once:
 
 ```bash
 node framework/tooling/install.mjs
@@ -102,9 +111,7 @@ Default shared location:
 ~/.game-framework/tools/
 ```
 
-All games on that machine reuse the same versioned tool cache. When Framework later pins a new tool version, it is installed side-by-side rather than replacing versions still needed by older games.
-
-`doctor.mjs` verifies the current OS/CPU, Node/npm, .NET 8, Rust/Cargo, filesystem linking capability, relevant environment overrides, PATH copies of `spacetime`/`protoc`, and all Framework-installed tool versions. It returns non-zero when the machine is not ready.
+The installer keeps Luban and PB code-generation tools in a shared versioned cache. Go itself remains a normal machine toolchain and Go modules remain managed by `go.mod`.
 
 For CI:
 
@@ -112,28 +119,15 @@ For CI:
 node framework/tooling/doctor.mjs --json
 ```
 
-Generated TypeScript runtime packages are stored centrally. Generation creates lightweight project links when required; it does not run a fresh package install for each game.
-
 ## Per-game commands
 
 Each game owns a root `game-tools.json` based on [`tooling/game-tools.example.json`](./tooling/game-tools.example.json).
-
-Then from the game repository:
 
 ```bash
 node framework/tooling/scripts/generate-all.mjs
 node framework/tooling/scripts/validate-all.mjs
 ```
 
+The default generated configuration readers are TypeScript + Go. Rust generation is optional and enabled only by games that actually own Rust code.
+
 See [`tooling/README.md`](./tooling/README.md).
-
-## Current development model
-
-```text
-game-framework.git
-bounce-ball.git
-```
-
-During active development, BounceBall may compile Framework source directly through a Git submodule. A released game pins an exact Framework commit/tag, which also pins its toolchain baseline.
-
-The current Luban convention is derived from BounceBall's proven single-source TS/Rust/binary generation model. BounceBall currently has no concrete PB schema, so Framework defines PB generation tooling without inventing game messages.

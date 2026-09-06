@@ -9,10 +9,6 @@ export const frameworkRoot = resolve(toolingRoot, "..");
 export const toolchainPath = resolve(toolingRoot, "toolchain.json");
 export const toolchain = JSON.parse(readFileSync(toolchainPath, "utf8"));
 
-export function platformKey() {
-  return `${process.platform}-${process.arch}`;
-}
-
 export function toolHome() {
   return resolve(process.env.GAME_FRAMEWORK_TOOL_HOME ?? join(homedir(), ".game-framework", "tools"));
 }
@@ -29,22 +25,12 @@ export function lubanDll() {
   return path;
 }
 
-export function spacetimeExecutable() {
-  const executable = process.platform === "win32" ? "spacetime.exe" : "spacetime";
-  const path = resolve(toolHome(), "spacetime", toolchain.spacetime.cliVersion, platformKey(), executable);
-  if (!existsSync(path)) {
-    throw new Error(`SpacetimeDB CLI ${toolchain.spacetime.cliVersion} is not installed: ${path}. Run: node framework/tooling/install.mjs`);
-  }
-  return path;
-}
-
 export function sharedNodeRoot() {
   const pb = toolchain.protobuf;
-  const st = toolchain.spacetime;
   return resolve(
     toolHome(),
     "node",
-    `st-${st.typescriptSdkVersion}_tsproto-${pb.tsProto}_grpc-${pb.grpcTools}_buf-${pb.bufbuildProtobuf}_7zip-${pb.sevenZipBin}`,
+    `tsproto-${pb.tsProto}_grpc-${pb.grpcTools}_buf-${pb.bufbuildProtobuf}_7zip-${pb.sevenZipBin}`,
   );
 }
 
@@ -74,7 +60,6 @@ export function sharedNodePackage(packageName) {
 }
 
 function expectedPackageVersion(packageName) {
-  if (packageName === "spacetimedb") return toolchain.spacetime.typescriptSdkVersion;
   if (packageName === "@bufbuild/protobuf") return toolchain.protobuf.bufbuildProtobuf;
   return undefined;
 }
@@ -103,21 +88,12 @@ export function ensureGameNodePackageLink(gameRoot, packageName) {
   return link;
 }
 
-export function protobufRustCodegenExecutable() {
-  const pb = toolchain.protobuf;
-  const executable = process.platform === "win32"
-    ? "game-framework-protobuf-rust-codegen.exe"
-    : "game-framework-protobuf-rust-codegen";
-  const path = resolve(
-    toolHome(),
-    "protobuf",
-    "rust",
-    `prost-${pb.prostBuild}_protoc-${pb.protocBinVendored}`,
-    "bin",
-    executable,
-  );
+export function protobufGoCodegenExecutable() {
+  const version = toolchain.protobuf.protocGenGo;
+  const executable = process.platform === "win32" ? "protoc-gen-go.exe" : "protoc-gen-go";
+  const path = resolve(toolHome(), "protobuf", "go", `protoc-gen-go-${version}`, "bin", executable);
   if (!existsSync(path)) {
-    throw new Error(`Framework Protobuf Rust codegen is not installed: ${path}. Run: node framework/tooling/install.mjs`);
+    throw new Error(`Framework protoc-gen-go ${version} is not installed: ${path}. Run: node framework/tooling/install.mjs`);
   }
   return path;
 }

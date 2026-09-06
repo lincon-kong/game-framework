@@ -2,55 +2,29 @@
 
 Shared Protobuf validation and code generation for explicit protocol boundaries.
 
-## Ownership
+Framework owns compiler/generator versions. A game owns one `.proto` source tree and generated output locations.
 
-Framework owns PB compiler/codegen/runtime dependencies and their versions. A game owns only one `.proto` source tree and generated output locations.
-
-```text
-Game
-└── shared/protocol/**/*.proto
-
-Framework baseline
-├── grpc-tools / protoc
-├── ts-proto
-├── @bufbuild/protobuf runtime
-├── prost-build
-└── protoc-bin-vendored
-```
-
-One source generates both sides:
+Current baseline:
 
 ```text
 .proto
-├── TypeScript via shared grpc-tools + ts-proto
-└── Rust via shared compiled prost-build generator
+├── TypeScript via grpc-tools + ts-proto
+└── Go via protoc-gen-go
 ```
 
-## Install once
+`protoc-gen-go` is installed once into the Framework shared tool cache. Go messages should define an appropriate `option go_package` for their game/server module.
+
+Install once:
 
 ```bash
 node framework/tooling/install.mjs
 ```
 
-The machine-level installer:
-
-- installs the Node PB tools/runtime once into `~/.game-framework/tools/node/...`;
-- compiles the Rust PB generator once into `~/.game-framework/tools/protobuf/rust/...`;
-- reuses both across all games using the same Framework baseline.
-
-When TypeScript PB output is generated, Framework creates a lightweight game link to the shared `@bufbuild/protobuf` runtime. No per-game PB `npm install`, system `protoc`, or repeated Rust generator build is required.
-
-## Commands
-
-From the game root:
+Generate/validate:
 
 ```bash
 node framework/tooling/protobuf/validate.mjs
 node framework/tooling/protobuf/generate.mjs
 ```
 
-The machine still needs the base Rust/Cargo toolchain for the one-time installer to compile the shared Rust generator.
-
-Do not create separate client/server copies of the same `.proto`. Do not use PB as a wrapper around direct SpacetimeDB reducers/subscriptions.
-
-BounceBall currently has no concrete `.proto` source; concrete messages are added only when the first independent PB boundary is implemented.
+Rust PB codegen is intentionally not in the default toolchain. Add it when the first real Rust protocol consumer exists rather than forcing Rust/Cargo onto every Go-backend development machine.

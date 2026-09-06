@@ -1,28 +1,17 @@
 {
+  "server": {
+    "goMinimum": "1.25"
+  },
   "luban": {
     "version": "4.10.2",
     "archiveSha256": "785b53b570c918827d314ef78caa180ca1c55bc252ebc1e921a6dc0760317e8d",
     "license": "MIT"
-  },
-  "spacetime": {
-    "cliVersion": "2.8.3",
-    "rustModuleVersion": "2.8.3",
-    "typescriptSdkVersion": "2.8.3",
-    "license": "Business Source License 1.1",
-    "archiveSha256": {
-      "darwin-arm64": "b557835b862a7af4e60ad09de895a3aa2eee86dd690a9816df08b1b9e3f782ec",
-      "darwin-x64": "0861a8f0808647c6442912acbdde0daf6db5a61a073fef6bf5eef9074b94e07b",
-      "linux-arm64": "9aa31125598b860d14126a55e9cc6ad1f4892bb010350ed305bcd53645b9fdf6",
-      "linux-x64": "eaf5d3e1f1e38ed772fa1ccfbf17a95d131fbd0d3c5528355993a5c6187e1960",
-      "win32-x64": "74d315f7a7752b3ea7f7ca1f0dc31b06f1e1007c044a157fbf207229efb8b00a"
-    }
   },
   "protobuf": {
     "tsProto": "2.12.1",
     "grpcTools": "1.13.1",
     "sevenZipBin": "5.2.0",
     "bufbuildProtobuf": "2.10.2",
-    "prostBuild": "0.14.4",
-    "protocBinVendored": "3.2.0"
+    "protocGenGo": "1.36.11"
   }
 }

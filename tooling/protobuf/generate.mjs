@@ -2,8 +2,8 @@ import { mkdirSync, rmSync } from "node:fs";
 import { gamePath, loadGameConfig, requireSection, run } from "../lib/game-config.mjs";
 import {
   ensureGameNodePackageLink,
+  protobufGoCodegenExecutable,
   protobufNodeBin,
-  protobufRustCodegenExecutable,
 } from "../lib/toolchain.mjs";
 import { listProtoFiles } from "./lib.mjs";
 
@@ -36,11 +36,18 @@ try {
     ], { cwd: gameRoot });
   }
 
-  const rustOut = section.rustOut ? gamePath(gameRoot, section.rustOut) : undefined;
-  if (rustOut) {
-    rmSync(rustOut, { recursive: true, force: true });
-    mkdirSync(rustOut, { recursive: true });
-    run(protobufRustCodegenExecutable(), [source, rustOut], { cwd: gameRoot });
+  const goOut = section.goOut ? gamePath(gameRoot, section.goOut) : undefined;
+  if (goOut) {
+    const protocGenGo = protobufGoCodegenExecutable();
+    rmSync(goOut, { recursive: true, force: true });
+    mkdirSync(goOut, { recursive: true });
+    run(protoc, [
+      "-I", source,
+      `--plugin=protoc-gen-go=${protocGenGo}`,
+      `--go_out=${goOut}`,
+      "--go_opt=paths=source_relative",
+      ...protos,
+    ], { cwd: gameRoot });
   }
 
   console.log(`Protobuf generated: ${protos.length} source file(s)`);

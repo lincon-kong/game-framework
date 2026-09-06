@@ -13,11 +13,9 @@ import { delimiter, dirname, extname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import {
   lubanDll,
-  platformKey,
+  protobufGoCodegenExecutable,
   protobufNodeBin,
-  protobufRustCodegenExecutable,
   sharedNodePackage,
-  spacetimeExecutable,
   toolHome,
   toolchain,
 } from "./lib/toolchain.mjs";
@@ -36,12 +34,10 @@ function commandVersion(command, args = ["--version"]) {
 }
 
 function pathCandidates(command) {
-  const pathValue = process.env.PATH ?? "";
-  const directories = pathValue.split(delimiter).filter(Boolean);
+  const directories = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
   const extensions = process.platform === "win32"
     ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";")
     : [""];
-
   const hasExtension = Boolean(extname(command));
   const candidates = [];
   for (const directory of directories) {
@@ -51,10 +47,10 @@ function pathCandidates(command) {
       continue;
     }
     for (const extension of extensions) {
-      const candidate = resolve(directory, `${command}${extension.toLowerCase()}`);
-      const originalCase = resolve(directory, `${command}${extension}`);
-      if (existsSync(candidate)) candidates.push(candidate);
-      else if (candidate !== originalCase && existsSync(originalCase)) candidates.push(originalCase);
+      const lower = resolve(directory, `${command}${extension.toLowerCase()}`);
+      const original = resolve(directory, `${command}${extension}`);
+      if (existsSync(lower)) candidates.push(lower);
+      else if (lower !== original && existsSync(original)) candidates.push(original);
     }
   }
   return [...new Set(candidates)];
@@ -69,24 +65,14 @@ function packageVersion(packageRoot) {
 }
 
 function semverMajor(value) {
-  const match = `${value ?? ""}`.match(/(\d+)\./);
+  const match = `${value ?? ""}`.match(/(?:v)?(\d+)\./);
   return match ? Number(match[1]) : undefined;
 }
 
 function checkPlatform() {
-  const supported = new Set([
-    "darwin-arm64",
-    "darwin-x64",
-    "linux-arm64",
-    "linux-x64",
-    "win32-x64",
-  ]);
-  const key = platformKey();
-  if (supported.has(key)) {
-    add("OK", "platform", `${process.platform}/${process.arch} (${key})`);
-  } else {
-    add("ERROR", "platform", `${process.platform}/${process.arch} (${key})`, `Framework installer does not currently provide a SpacetimeDB CLI package for ${key}.`);
-  }
+  const supported = new Set(["darwin", "linux", "win32"]);
+  if (supported.has(process.platform)) add("OK", "platform", `${process.platform}/${process.arch}`);
+  else add("ERROR", "platform", `${process.platform}/${process.arch}`, "Framework tooling currently supports macOS, Linux and Windows.");
 }
 
 function checkBaseCommand(name, args, minimumMajor) {
@@ -103,6 +89,36 @@ function checkBaseCommand(name, args, minimumMajor) {
     }
   }
   add("OK", name, version);
+}
+
+function checkGo() {
+  const version = commandVersion("go", ["version"]);
+  if (!version) {
+    add("ERROR", "Go", "go not available on PATH", `Install Go >= ${toolchain.server.goMinimum}.`);
+    return;
+  }
+  const match = version.match(/go(\d+)\.(\d+)/);
+  const required = `${toolchain.server.goMinimum}`.split(".").map(Number);
+  if (!match) {
+    add("ERROR", "Go", version, `Unable to verify Go >= ${toolchain.server.goMinimum}.`);
+    return;
+  }
+  const actualMajor = Number(match[1]);
+  const actualMinor = Number(match[2]);
+  const requiredMajor = required[0] ?? 1;
+  const requiredMinor = required[1] ?? 0;
+  if (actualMajor < requiredMajor || (actualMajor === requiredMajor && actualMinor < requiredMinor)) {
+    add("ERROR", "Go", version, `Framework requires Go >= ${toolchain.server.goMinimum}.`);
+    return;
+  }
+  add("OK", "Go", version);
+}
+
+function checkOptionalRust() {
+  const rustc = commandVersion("rustc", ["--version"]);
+  const cargo = commandVersion("cargo", ["--version"]);
+  if (rustc && cargo) add("INFO", "optional Rust", `${rustc}; ${cargo}`);
+  else add("INFO", "optional Rust", "not installed; only required by games that own Rust/WASM or a future Rust GameServer");
 }
 
 function checkWritableDirectory() {
@@ -128,14 +144,7 @@ function checkJunctionOrSymlink() {
     symlinkSync(target, link, process.platform === "win32" ? "junction" : "dir");
     add("OK", process.platform === "win32" ? "junction" : "symlink", "supported");
   } catch (error) {
-    add(
-      "ERROR",
-      process.platform === "win32" ? "junction" : "symlink",
-      error.message,
-      process.platform === "win32"
-        ? "Ensure the user can create directory junctions on this filesystem."
-        : "Ensure the user/filesystem permits symbolic links.",
-    );
+    add("ERROR", process.platform === "win32" ? "junction" : "symlink", error.message);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -147,25 +156,18 @@ function checkDotnet() {
     add("ERROR", ".NET", "dotnet not available on PATH", "Install .NET 8 runtime/SDK for Luban 4.10.2.");
     return;
   }
-
   const runtimes = spawnSync("dotnet", ["--list-runtimes"], { encoding: "utf8", shell: false });
   const text = runtimes.status === 0 ? runtimes.stdout ?? "" : "";
-  if (!/Microsoft\.NETCore\.App 8\./.test(text)) {
-    add("ERROR", ".NET", `${version}; .NET 8 runtime not found`, "Install Microsoft.NETCore.App 8.x for Luban 4.10.2.");
-  } else {
-    add("OK", ".NET", `${version}; .NET 8 runtime available`);
-  }
+  if (!/Microsoft\.NETCore\.App 8\./.test(text)) add("ERROR", ".NET", `${version}; .NET 8 runtime not found`, "Install Microsoft.NETCore.App 8.x.");
+  else add("OK", ".NET", `${version}; .NET 8 runtime available`);
 }
 
 function checkNodePackage(name, expected) {
   try {
     const root = sharedNodePackage(name);
     const actual = packageVersion(root);
-    if (actual !== expected) {
-      add("ERROR", `Node package ${name}`, `${actual ?? "unknown"}; expected ${expected}`, "Re-run Framework installer.");
-    } else {
-      add("OK", `Node package ${name}`, `${actual} @ ${root}`);
-    }
+    if (actual !== expected) add("ERROR", `Node package ${name}`, `${actual ?? "unknown"}; expected ${expected}`, "Re-run Framework installer.");
+    else add("OK", `Node package ${name}`, `${actual} @ ${root}`);
   } catch (error) {
     add("ERROR", `Node package ${name}`, error.message, "Run: node framework/tooling/install.mjs");
   }
@@ -176,49 +178,29 @@ function checkInstalledTools() {
     const path = lubanDll();
     const deps = resolve(dirname(path), "Luban.deps.json");
     const content = existsSync(deps) ? readFileSync(deps, "utf8") : "";
-    if (content && !content.includes(`Luban/${toolchain.luban.version}`)) {
-      add("ERROR", "Luban", `${path}; version metadata does not match ${toolchain.luban.version}`, "Re-run Framework installer.");
-    } else {
-      add("OK", "Luban", `${toolchain.luban.version} @ ${path}`);
-    }
+    if (content && !content.includes(`Luban/${toolchain.luban.version}`)) add("ERROR", "Luban", `${path}; version metadata mismatch`, "Re-run Framework installer.");
+    else add("OK", "Luban", `${toolchain.luban.version} @ ${path}`);
   } catch (error) {
     add("ERROR", "Luban", error.message, "Run: node framework/tooling/install.mjs");
   }
 
-  try {
-    const path = spacetimeExecutable();
-    const version = commandVersion(path, ["--version"]);
-    if (!version || !version.includes(toolchain.spacetime.cliVersion)) {
-      add("ERROR", "SpacetimeDB CLI", `${version ?? "unreadable version"} @ ${path}`, "Re-run Framework installer.");
-    } else {
-      add("OK", "SpacetimeDB CLI", `${version} @ ${path}`);
-    }
-  } catch (error) {
-    add("ERROR", "SpacetimeDB CLI", error.message, "Run: node framework/tooling/install.mjs");
-  }
-
-  checkNodePackage("spacetimedb", toolchain.spacetime.typescriptSdkVersion);
   checkNodePackage("@bufbuild/protobuf", toolchain.protobuf.bufbuildProtobuf);
   checkNodePackage("ts-proto", toolchain.protobuf.tsProto);
   checkNodePackage("grpc-tools", toolchain.protobuf.grpcTools);
   checkNodePackage("7zip-bin", toolchain.protobuf.sevenZipBin);
 
-  const nodeBins = [
-    ["PB protoc", "grpc_tools_node_protoc"],
-    ["ts-proto plugin", "protoc-gen-ts_proto"],
-  ];
-  for (const [label, name] of nodeBins) {
-    try {
-      add("OK", label, protobufNodeBin(name));
-    } catch (error) {
-      add("ERROR", label, error.message, "Run: node framework/tooling/install.mjs");
-    }
+  for (const [label, name] of [["PB protoc", "grpc_tools_node_protoc"], ["ts-proto plugin", "protoc-gen-ts_proto"]]) {
+    try { add("OK", label, protobufNodeBin(name)); }
+    catch (error) { add("ERROR", label, error.message, "Run: node framework/tooling/install.mjs"); }
   }
 
   try {
-    add("OK", "PB Rust codegen", protobufRustCodegenExecutable());
+    const path = protobufGoCodegenExecutable();
+    const version = commandVersion(path, ["--version"]);
+    if (!version || !version.includes(toolchain.protobuf.protocGenGo)) add("ERROR", "protoc-gen-go", `${version ?? "unreadable"} @ ${path}`, "Re-run Framework installer.");
+    else add("OK", "protoc-gen-go", `${version} @ ${path}`);
   } catch (error) {
-    add("ERROR", "PB Rust codegen", error.message, "Run: node framework/tooling/install.mjs");
+    add("ERROR", "protoc-gen-go", error.message, "Run: node framework/tooling/install.mjs");
   }
 }
 
@@ -228,18 +210,18 @@ function checkEnvironmentOverrides() {
     "DOTNET_ROOT",
     "DOTNET_ROLL_FORWARD",
     "DOTNET_MULTILEVEL_LOOKUP",
-    "RUSTUP_TOOLCHAIN",
-    "CARGO_HOME",
+    "GOROOT",
+    "GOPATH",
+    "GOBIN",
+    "GOFLAGS",
     "NODE_OPTIONS",
     "NPM_CONFIG_PREFIX",
   ];
-
   const set = watched.filter(name => process.env[name]);
   if (set.length === 0) {
     add("OK", "environment overrides", "none of the watched overrides are set");
     return;
   }
-
   for (const name of set) {
     const value = process.env[name];
     const level = name === "GAME_FRAMEWORK_TOOL_HOME" ? "INFO" : "WARN";
@@ -248,18 +230,10 @@ function checkEnvironmentOverrides() {
 }
 
 function checkPathConflicts() {
-  for (const command of ["spacetime", "protoc"]) {
+  for (const command of ["protoc", "protoc-gen-go"]) {
     const found = pathCandidates(command);
-    if (found.length > 0) {
-      add(
-        "INFO",
-        `PATH ${command}`,
-        found.join(" | "),
-        "Framework uses its own absolute-path tool, so this does not affect normal Framework commands.",
-      );
-    } else {
-      add("OK", `PATH ${command}`, "no global copy found");
-    }
+    if (found.length > 0) add("INFO", `PATH ${command}`, found.join(" | "), "Framework codegen uses its own absolute-path tool.");
+    else add("OK", `PATH ${command}`, "no global copy found");
   }
 }
 
@@ -267,9 +241,9 @@ checkPlatform();
 checkWritableDirectory();
 checkBaseCommand("node", ["--version"], 18);
 checkBaseCommand(process.platform === "win32" ? "npm.cmd" : "npm", ["--version"]);
+checkGo();
 checkDotnet();
-checkBaseCommand("rustc", ["--version"]);
-checkBaseCommand("cargo", ["--version"]);
+checkOptionalRust();
 checkJunctionOrSymlink();
 checkEnvironmentOverrides();
 checkPathConflicts();
@@ -279,13 +253,7 @@ const errors = rows.filter(row => row.level === "ERROR").length;
 const warnings = rows.filter(row => row.level === "WARN").length;
 
 if (jsonMode) {
-  console.log(JSON.stringify({
-    status: errors === 0 ? "READY" : "NOT_READY",
-    errors,
-    warnings,
-    toolHome: toolHome(),
-    checks: rows,
-  }, null, 2));
+  console.log(JSON.stringify({ status: errors === 0 ? "READY" : "NOT_READY", errors, warnings, toolHome: toolHome(), checks: rows }, null, 2));
 } else {
   console.log("Game Framework Doctor");
   console.log(`Tool home: ${toolHome()}`);

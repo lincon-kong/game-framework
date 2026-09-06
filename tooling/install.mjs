@@ -1,6 +1,4 @@
 import {
-  chmodSync,
-  copyFileSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -13,18 +11,17 @@ import {
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import {
-  platformKey,
   protobufNodeRoot,
   toolHome,
   toolchain,
   toolingRoot,
 } from "./lib/toolchain.mjs";
 
-function run(command, args, cwd = toolingRoot) {
-  const result = spawnSync(command, args, { cwd, stdio: "inherit", shell: false });
+function run(command, args, cwd = toolingRoot, env = process.env) {
+  const result = spawnSync(command, args, { cwd, stdio: "inherit", shell: false, env });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${command} exited with ${result.status}`);
 }
@@ -60,16 +57,13 @@ function findFile(root, name) {
 function ensureNodeTools() {
   const root = protobufNodeRoot();
   const marker = resolve(root, "node_modules", ".bin", process.platform === "win32" ? "grpc_tools_node_protoc.cmd" : "grpc_tools_node_protoc");
-  const spacetimeSdk = resolve(root, "node_modules", "spacetimedb", "package.json");
   const bufRuntime = resolve(root, "node_modules", "@bufbuild", "protobuf", "package.json");
-  if (existsSync(marker) && existsSync(spacetimeSdk) && existsSync(bufRuntime)) return root;
+  if (existsSync(marker) && existsSync(bufRuntime)) return root;
 
   mkdirSync(root, { recursive: true });
-  const packageJson = resolve(root, "package.json");
-  writeFileSync(packageJson, JSON.stringify({ name: "game-framework-shared-tools", private: true }, null, 2));
+  writeFileSync(resolve(root, "package.json"), JSON.stringify({ name: "game-framework-shared-tools", private: true }, null, 2));
 
   const pb = toolchain.protobuf;
-  const st = toolchain.spacetime;
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   run(npm, [
     "install",
@@ -78,7 +72,6 @@ function ensureNodeTools() {
     `grpc-tools@${pb.grpcTools}`,
     `ts-proto@${pb.tsProto}`,
     `@bufbuild/protobuf@${pb.bufbuildProtobuf}`,
-    `spacetimedb@${st.typescriptSdkVersion}`,
   ], root);
   return root;
 }
@@ -123,94 +116,29 @@ async function ensureLuban(sevenZip) {
   }
 }
 
-function spacetimeAsset(version) {
-  const assets = {
-    "darwin-arm64": "spacetime-aarch64-apple-darwin.tar.gz",
-    "darwin-x64": "spacetime-x86_64-apple-darwin.tar.gz",
-    "linux-arm64": "spacetime-aarch64-unknown-linux-gnu.tar.gz",
-    "linux-x64": "spacetime-x86_64-unknown-linux-gnu.tar.gz",
-    "win32-x64": "spacetime-x86_64-pc-windows-msvc.zip",
-  };
-  const asset = assets[platformKey()];
-  if (!asset) throw new Error(`SpacetimeDB ${version} installer does not support ${platformKey()}`);
-  return asset;
-}
+function ensureGoProtobufCodegen() {
+  const version = toolchain.protobuf.protocGenGo;
+  const bin = resolve(toolHome(), "protobuf", "go", `protoc-gen-go-${version}`, "bin");
+  const executable = resolve(bin, process.platform === "win32" ? "protoc-gen-go.exe" : "protoc-gen-go");
+  if (existsSync(executable)) return;
 
-async function ensureSpacetime(sevenZip) {
-  const version = toolchain.spacetime.cliVersion;
-  const executableName = process.platform === "win32" ? "spacetime.exe" : "spacetime";
-  const root = resolve(toolHome(), "spacetime", version);
-  const targetDir = resolve(root, platformKey());
-  const target = resolve(targetDir, executableName);
-
-  if (!existsSync(target)) {
-    const asset = spacetimeAsset(version);
-    const expectedSha256 = toolchain.spacetime.archiveSha256?.[platformKey()];
-    if (!expectedSha256) throw new Error(`Missing SpacetimeDB checksum for ${platformKey()}`);
-
-    const temp = mkdtempSync(join(tmpdir(), "game-framework-spacetime-"));
-    try {
-      const archive = join(temp, basename(asset));
-      await download(
-        `https://github.com/clockworklabs/SpacetimeDB/releases/download/v${version}/${asset}`,
-        archive,
-        expectedSha256,
-      );
-      const extracted = join(temp, "extracted");
-      mkdirSync(extracted, { recursive: true });
-      if (asset.endsWith(".zip")) {
-        run(sevenZip, ["x", archive, `-o${extracted}`, "-y"]);
-      } else {
-        run("tar", ["-xzf", archive, "-C", extracted]);
-      }
-      const binary = findFile(extracted, executableName);
-      if (!binary) throw new Error(`SpacetimeDB ${version} archive did not contain ${executableName}`);
-      mkdirSync(targetDir, { recursive: true });
-      copyFileSync(binary, target);
-      if (process.platform !== "win32") chmodSync(target, 0o755);
-    } finally {
-      rmSync(temp, { recursive: true, force: true });
-    }
-  }
-
-  const license = resolve(root, "LICENSE.txt");
-  if (!existsSync(license)) {
-    await download(
-      `https://raw.githubusercontent.com/clockworklabs/SpacetimeDB/v${version}/LICENSE.txt`,
-      license,
-    );
-  }
-}
-
-function ensureRustCodegen() {
-  const pb = toolchain.protobuf;
-  const root = resolve(toolHome(), "protobuf", "rust", `prost-${pb.prostBuild}_protoc-${pb.protocBinVendored}`);
-  const executableName = process.platform === "win32"
-    ? "game-framework-protobuf-rust-codegen.exe"
-    : "game-framework-protobuf-rust-codegen";
-  const target = resolve(root, "bin", executableName);
-  if (existsSync(target)) return;
-
-  const targetDir = resolve(root, "target");
-  const manifest = resolve(toolingRoot, "protobuf", "rust-codegen", "Cargo.toml");
-  run("cargo", ["build", "--release", "--manifest-path", manifest, "--target-dir", targetDir]);
-
-  const built = resolve(targetDir, "release", executableName);
-  if (!existsSync(built)) throw new Error(`Rust Protobuf codegen build did not produce ${built}`);
-  mkdirSync(dirname(target), { recursive: true });
-  copyFileSync(built, target);
-  if (process.platform !== "win32") chmodSync(target, 0o755);
+  mkdirSync(bin, { recursive: true });
+  run(
+    "go",
+    ["install", `google.golang.org/protobuf/cmd/protoc-gen-go@v${version}`],
+    toolingRoot,
+    { ...process.env, GOBIN: bin },
+  );
+  if (!existsSync(executable)) throw new Error(`go install did not produce ${executable}`);
 }
 
 try {
   mkdirSync(toolHome(), { recursive: true });
   const nodeRoot = ensureNodeTools();
-  const sevenZip = sevenZipExecutable(nodeRoot);
-  await ensureLuban(sevenZip);
-  await ensureSpacetime(sevenZip);
-  ensureRustCodegen();
+  await ensureLuban(sevenZipExecutable(nodeRoot));
+  ensureGoProtobufCodegen();
   console.log(`Framework shared toolchain installed at: ${toolHome()}`);
-  console.log(`Luban ${toolchain.luban.version}; SpacetimeDB ${toolchain.spacetime.cliVersion}; ts-proto ${toolchain.protobuf.tsProto}; prost-build ${toolchain.protobuf.prostBuild}`);
+  console.log(`Luban ${toolchain.luban.version}; ts-proto ${toolchain.protobuf.tsProto}; protoc-gen-go ${toolchain.protobuf.protocGenGo}`);
 } catch (error) {
   console.error(error.message);
   process.exit(1);

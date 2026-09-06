@@ -8,26 +8,22 @@ This document defines the reusable client-side architecture.
 - LayaAir 3.x as the first engine integration target;
 - framework core remains engine-agnostic where practical;
 - Laya-specific behavior stays behind `laya/` adapters;
-- game code may compile framework source directly during development;
-- final game builds own the final bundling/minification step.
+- final game builds own final bundling/minification.
 
 The framework must not bundle its own duplicate Laya runtime.
 
 ## 2. Core model
 
-One process owns one top-level Framework instance.
-
 ```text
 Framework
   +-- Lifecycle
-  +-- Assets
-  +-- Packages
-  +-- Router/UI
-  +-- Events/Timers/Update
-  +-- Pools/Entities/FSM
+  +-- Assets / Packages
+  +-- Router / UI
+  +-- Events / Timers / Update
+  +-- Pools / Entities / FSM
   +-- Modules
-  +-- Network/Storage
-  +-- Log/Crash/Perf
+  +-- Network / Storage
+  +-- Log / Crash / Perf
   +-- WASM
   +-- Engine adapters
 ```
@@ -41,145 +37,56 @@ AppScope
           -> RouteScope
 ```
 
-Every disposable framework resource should be owner-bound when practical. Owner disposal must release registered resources and active descendants.
-
-### Package boundary
-
-Package is a delivery/memory/lifecycle boundary, not a replacement for every feature module.
-
-Use a package when a game needs a meaningful independently loadable/unloadable feature/resource boundary. Do not create one package per tiny feature.
-
-### Routing
-
-The reusable navigation model is intentionally small:
-
-- `Page`: primary screen/history entry;
-- `Tab`: peer content selection inside a page/application area;
-- `Pop`: popup/overlay route.
-
-Route history and lifecycle ownership are separate concepts.
-
-### UI
-
-Framework owns generic UI mounting/layer/lifetime mechanisms. Concrete game UI belongs to the game.
-
-Recommended game integration:
-
-- persistent bootstrap scene;
-- business views authored as Prefabs;
-- route roots mounted into stable UI layers;
-- visible object identity, route identity and game entity identity remain separate.
-
-### Update scheduling
-
-Framework exposes named phases such as:
-
-```text
-PreUpdate
-NetworkUpdate
-FixedUpdate
-Update
-LateUpdate
-RenderUpdate
-```
-
-Fixed-step policy is configurable by the game/application. The framework must not permanently hardcode a game simulation rate.
-
-Games may choose 20/30/60 Hz or no fixed simulation depending on their domain.
+Every disposable framework resource should be owner-bound when practical. Parent disposal cascades to children and async work must not commit into an inactive owner.
 
 ### Network
 
-Client framework network responsibility is mechanism only:
+Client network responsibility is mechanism only:
 
 - HTTP/WebSocket transport;
-- request cancellation;
-- timeout;
-- reconnect/heartbeat primitives;
+- request cancellation/timeout;
+- heartbeat/reconnect primitives;
 - request IDs/correlation;
 - generic codec hooks;
 - connection state;
 - owner-aware cancellation where useful.
 
-Game-specific endpoints/messages, authentication flow and domain services do not belong in the low-level framework.
+**Do not design NetworkManager as one global socket.** The client must support named independent connections, for example:
+
+```text
+NetworkManager
+├── lobby -> Go / Pitaya
+└── game  -> optional realtime GameServer
+```
+
+Both sockets may coexist. Lobby traffic remains low-frequency while the game connection carries realtime input/state.
+
+Game-specific auth flows, route names and messages remain in game/application code.
 
 Recommended game-facing boundary:
 
 ```text
 Feature
-  -> GameBackendPort / application service
+  -> application service / backend client
       -> framework transport
 ```
 
-Game features should not directly scatter `fetch`, WebSocket or raw Protobuf transport code.
+### Update scheduling
+
+Framework exposes named phases such as `PreUpdate`, `NetworkUpdate`, `FixedUpdate`, `Update`, `LateUpdate` and `RenderUpdate`. Fixed-step policy is configurable by the consuming game.
 
 ### Storage
 
-Framework provides storage abstractions/adapters. Games own schemas and migration decisions.
-
-Local storage is never authoritative for paid currency, inventory or server-owned game state.
+Framework provides client storage mechanisms. Local storage is never authoritative for paid currency, inventory or other server-owned commercial state.
 
 ### WASM
 
-Framework owns generic WASM loading/memory/call adapter mechanisms only.
+Framework owns generic WASM loading/memory/call adapter mechanisms only. Concrete game WASM modules and ABI semantics remain game-owned.
 
-Concrete game WASM modules and ABI semantics remain in the game repository.
+## 3. What must not be added here
 
-## 3. Recommended module layout
+Do not add concrete game controllers/models/views, route IDs, gameplay rules, platform payment behavior, concrete PB messages/Luban tables, or game-specific WASM ABI definitions.
 
-```text
-client/
-├── src/
-│   ├── Framework.ts
-│   ├── FrameworkAccess.ts
-│   ├── lifecycle/
-│   ├── asset/
-│   ├── package/
-│   ├── router/
-│   ├── ui/
-│   ├── event/
-│   ├── timer/
-│   ├── update/
-│   ├── pool/
-│   ├── entity/
-│   ├── fsm/
-│   ├── module/
-│   ├── network/
-│   ├── storage/
-│   ├── log/
-│   ├── crash/
-│   ├── perfdog/
-│   ├── wasm/
-│   ├── error/
-│   └── laya/
-├── tests/
-├── package.json
-└── tsconfig.json
-```
+## 4. Promotion rule
 
-## 4. What must not be added here
-
-Do not add:
-
-- Bounce Ball controllers/models/views;
-- game-specific route IDs;
-- hero/monster/stage/battle logic;
-- game-specific ads/payment/analytics behavior;
-- concrete game Protobuf messages;
-- concrete Luban tables;
-- game-specific WASM ABI definitions;
-- one-game-only shortcuts disguised as framework services.
-
-## 5. Promotion rule
-
-A capability should enter the framework when it is clearly a runtime mechanism rather than a game rule, or when repeated usage proves it generic.
-
-Prefer:
-
-```text
-first implementation in game/application layer
-        -> repeated or clearly generic need
-        -> extract stable primitive
-        -> framework
-```
-
-Avoid speculative framework growth.
+Prefer implementing a capability in a game first, then extracting it after repeated usage or when it is clearly a generic runtime mechanism. Avoid speculative framework growth.

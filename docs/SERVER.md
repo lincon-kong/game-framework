@@ -4,287 +4,226 @@ This document defines the reusable server architecture and technology baseline.
 
 ## 1. Core decision
 
-The default backend is **SpacetimeDB directly**.
+The default backend is **Go + Pitaya + PostgreSQL**.
 
-Do not add an Adapter/Repository/Port layer merely to hide SpacetimeDB.
+Pitaya is used for online runtime concerns: connection/session handling, request routing, server push/groups and optional clustering. It must not become the business-domain model.
 
-Normal application flow:
+Current pinned baseline:
 
 ```text
-Client
-  |
-  v
-SpacetimeDB generated bindings / subscriptions / reducers
-  |
-  v
-Game SpacetimeDB Module
-  ├── tables
-  ├── reducers
-  ├── services/domain logic
-  └── scheduled jobs
+Go       >= 1.25
+Pitaya   v2.11.24
 ```
 
-Game code may directly use SpacetimeDB tables, reducer context, transactions, subscriptions, scheduled reducers and generated bindings.
+Pitaya `v2.11.24` is pinned by `server/go.mod`.
 
 ## 2. Design goals
 
 The server foundation must support:
 
-- small games with online account/progression services;
-- inventory/equipment/economy;
-- quests/activities/mail/season/leaderboards;
-- multiplayer room/application state;
-- native authoritative battle servers when actually required;
-- future extraction/MMO workloads without forcing heavyweight infrastructure today.
+- login/account/player services;
+- commercial systems such as rewards, orders, payment verification, mail, activity and leaderboards;
+- cloud save and progression;
+- light multiplayer directly in Go when appropriate;
+- future heavy realtime GameServers without rewriting the business backend;
+- simple local development and low-cost self-hosting;
+- horizontal scaling by adding processes/machines when it becomes necessary.
 
 Priority order:
 
-1. development efficiency;
-2. correctness/testability;
+1. development/maintenance efficiency;
+2. commercial correctness and idempotency;
 3. simple deployment/operations;
-4. explicit state ownership;
-5. real Rust reuse;
-6. ability to split hot realtime simulation later.
+4. performance/resource efficiency;
+5. clean future realtime split.
 
-## 3. Language and runtime
+## 3. Runtime boundaries
 
-Rust is the primary backend language. New reusable crates use stable Rust / edition 2024 where supported by the active toolchain.
-
-Rust is used for:
-
-- SpacetimeDB modules;
-- reusable Framework SpacetimeDB helpers;
-- pure GameCore/domain code where cross-runtime reuse is real;
-- future native battle/world servers;
-- selected build/codegen tooling.
-
-## 4. Direct SpacetimeDB application backend
-
-SpacetimeDB owns ordinary runtime/player/application state.
-
-Typical **game-owned** data includes:
-
-- player/account mapping;
-- inventory/equipment;
-- progression/economy;
-- quests/activities/mail/season;
-- matchmaking/MMR;
-- room/application state;
-- settlement/result state.
-
-Concrete tables/reducers stay in the game repository.
-
-Recommended game module shape:
+Recommended shape:
 
 ```text
-server/spacetime/
-├── Cargo.toml
-└── src/
-    ├── lib.rs
-    ├── tables/
-    ├── reducers/
-    ├── services/
-    ├── jobs/
-    └── error.rs
+Go Process
+├── Pitaya boundary
+│   ├── frontend connection/session
+│   ├── routes/handlers/remotes
+│   ├── push/groups
+│   └── cluster adapters only when enabled
+│
+├── Application/domain
+│   ├── auth
+│   ├── player
+│   ├── reward/economy primitives
+│   ├── mail/activity
+│   ├── order/payment
+│   └── matchmaking/allocation
+│
+└── PostgreSQL
 ```
 
-Reducers/services may call SpacetimeDB APIs directly.
+Pitaya handlers should be thin. They validate/translate transport input, call ordinary Go application services and translate results back to the client.
 
-Do not add `PlayerRepository`, `DatabaseAdapter`, `SpacetimeAdapter`, `PersistencePort` or similar layers merely for architectural symmetry.
+Do not scatter `session.Session`, Pitaya contexts, route strings or transport-specific errors through domain code.
 
-## 5. Framework SpacetimeDB source and dependency ownership
+## 4. Standalone first, cluster later
 
-Framework contains the reusable crate:
+Local development and small production deployments should use Pitaya standalone mode.
+
+Do not require:
+
+- etcd;
+- NATS;
+- Redis;
+- Kubernetes;
+
+until a concrete deployment actually needs them.
+
+When multiple Go nodes are needed, Pitaya cluster mode may add service discovery/RPC. The current Pitaya baseline supports etcd service discovery and NATS/gRPC-style RPC infrastructure, but those are deployment choices rather than framework-wide mandatory dependencies.
+
+## 5. PostgreSQL ownership
+
+PostgreSQL is the durable source of truth for business state.
+
+Typical game-owned data:
+
+- platform identity/account mapping;
+- player profile/progression;
+- currencies/items/entitlements;
+- orders/payment events/refunds;
+- mail/activity state;
+- save data;
+- leaderboard source data;
+- matchmaking/MMR where durable state is useful;
+- completed match/result records.
+
+Concrete schemas and migrations stay in the game repository until repeated usage proves a generic Framework primitive.
+
+Prefer explicit transactions and simple SQL/pgx-style access over a large ORM abstraction unless a real project proves otherwise.
+
+## 6. Commercial invariants
+
+Reusable commercial code should preserve these invariants:
 
 ```text
-server/spacetime/
-├── Cargo.toml
-├── src/lib.rs
-└── README.md
+external callback/request
+        |
+        v
+verify provider/authenticity
+        |
+        v
+idempotency check
+        |
+        v
+transaction
+  order/event state
+  entitlement/reward
+  audit/source record
+        |
+        v
+commit
 ```
 
-Framework owns the supported SpacetimeDB Rust SDK baseline and currently pins `2.8.3`.
+Never implement payment callbacks as `callback -> addCurrency()` without order/idempotency/audit boundaries.
 
-The crate re-exports its pinned `spacetimedb` dependency where practical.
+Go is authoritative for durable commercial settlement even if a future realtime GameServer computes match rewards/results.
 
-Preferred game dependency:
+## 7. Client contract
 
-```toml
-[dependencies]
-game-framework-spacetime = { path = "../../framework/server/spacetime" }
-```
+The Laya client may keep a persistent Pitaya/lobby connection for session/push/application messages.
 
-If SpacetimeDB proc-macro/build behavior requires the consuming game module to declare `spacetimedb` directly, the declaration is allowed only as a Cargo build-resolution requirement and must use the exact Framework baseline. The game must not choose its own version.
-
-Validate this against the first real BounceBall SpacetimeDB module before adding more dependency-sync machinery.
-
-Only helpers that are genuinely reusable across games belong in Framework. Do not grow this crate into a generic business-service layer.
-
-## 6. Pure GameCore exception
-
-Deterministic rules/simulation that truly need multiple runtimes may stay platform-independent:
+A future heavy realtime GameServer should use a second direct connection:
 
 ```text
-pure Rust GameCore
-     ↑        ↑
-     |        |
-SpacetimeDB   Client WASM / Native Battle Server
+1. Client -> Go/Pitaya login
+2. Client -> Go/Pitaya matchmaking
+3. Go allocates GameServer/room and issues short-lived join token
+4. Client -> GameServer directly
+5. GameServer validates token and runs match
+6. GameServer -> Go signed/authenticated result
+7. Go settles durable reward/progression transaction
 ```
 
-This boundary exists for deterministic/cross-runtime code reuse, not to hide SpacetimeDB.
+The framework client network layer must therefore support multiple independent connections.
 
-## 7. Client/backend contract
+## 8. Light realtime in Go
 
-For ordinary SpacetimeDB interaction, use generated bindings directly:
+For ordinary rooms/co-op/light competitive games, keep the game server in Go/Pitaya when performance is sufficient.
+
+A reusable room runtime may later own:
 
 ```text
-Laya Client
-   |
-   v
-Generated SpacetimeDB bindings
-   ├── reducers
-   ├── subscriptions
-   └── local cache
-   |
-   v
-SpacetimeDB Module
+Room
+├── Join/Leave/Reconnect
+├── fixed tick when needed
+├── input queue
+├── authoritative state
+├── snapshot/delta
+└── result
 ```
 
-Do not duplicate this path into PB RPC.
+Do not build prediction/rollback/AOI/replication machinery before a real game needs it.
 
-Use Protobuf only for a genuinely independent protocol boundary, such as:
+## 9. Heavy realtime Rust exception
 
-- client <-> native battle server;
-- native service <-> native service;
-- replay/input protocol requiring transport independence;
-- external integration that benefits from an explicit binary contract.
+Add native Rust GameServer only for measured/credible workloads such as:
 
-## 8. Configuration/data ownership
+- sustained 20-30+ Hz authoritative simulation;
+- hundreds of active AI/entities per room;
+- heavy collision/pathfinding/skills;
+- tight memory budgets where Go GC/heap overhead materially reduces density;
+- latency-sensitive replication that benefits from custom data layout/allocation control.
 
-```text
-SpacetimeDB = runtime/player/application state
-Luban       = static game/content configuration
-Protobuf    = explicit independent protocol when required
-Env/TOML    = deployment/runtime settings
-Secrets     = secret/environment storage
-```
+Rust GameServer owns live match state only. It should not duplicate payment/mail/activity/account systems.
 
-Luban schemas/tables and PB schemas are concrete-game source and stay in the game repository.
+Keep Go out of the hot Tick path. Prefer direct client <-> Rust traffic and low-frequency Go <-> Rust control/result messages.
 
-## 9. SpacetimeDB toolchain
+## 10. Protocol
 
-Framework owns all SpacetimeDB toolchain version decisions:
+Protobuf is the preferred explicit binary protocol where a schema is valuable, including:
 
-```text
-tooling/toolchain.json
-├── CLI baseline
-├── Rust module SDK baseline
-└── TypeScript SDK baseline
-```
+- Laya <-> Go realtime/application messages when Pitaya route payloads use PB;
+- Laya <-> future Rust GameServer;
+- Go <-> Rust control/result protocols.
 
-Current aligned baseline is `2.8.3`.
+One game-owned `.proto` source tree should generate TypeScript and Go today. Add Rust output only when a real Rust consumer exists.
 
-Framework also owns the CLI binary under:
+## 11. Testing
 
-```text
-tooling/spacetime/bin/<platform>-<arch>/
-```
+High-value server tests:
 
-Prepare it with:
+- auth/provider verification;
+- payment callback signature and idempotency;
+- transaction rollback/atomicity;
+- reward/order invariants;
+- reconnect/session lifecycle where used;
+- protocol compatibility;
+- room/tick/realtime correctness only for games that implement it.
 
-```bash
-node framework/tooling/bootstrap.mjs
-```
+Framework tests cover reusable mechanisms; concrete game business behavior stays in game tests.
 
-Then use:
-
-```bash
-node framework/tooling/spacetime/run.mjs build
-node framework/tooling/spacetime/run.mjs generate
-node framework/tooling/spacetime/run.mjs dev
-node framework/tooling/spacetime/run.mjs publish
-```
-
-These wrappers use the Framework-local pinned CLI rather than an arbitrary global `spacetime` installation.
-
-Paths, database name, server and binding outputs come from the game's `game-tools.json`; tool versions do not.
-
-Generated TypeScript/Rust runtime SDK packages may still physically appear in the consuming game's package/Cargo graph because the generated code/compiler requires them. Their supported version is nevertheless selected by Framework.
-
-## 10. Native Rust realtime server
-
-Do not create a native server merely because one might be needed later.
-
-Introduce it only for real workloads such as:
-
-- high-frequency authoritative tick simulation;
-- heavy AOI/state replication;
-- latency-sensitive competitive combat;
-- specialized UDP/QUIC transport;
-- rollback/lag compensation;
-- world/battle simulation that needs independent scaling/runtime control.
-
-Hybrid topology when required:
-
-```text
-SpacetimeDB
- account / inventory / quest / matchmaking
-            |
-            v
-Native Rust Battle/World Server
- tick / simulation / AOI / replication
-            |
-            v
-SpacetimeDB
- validated result / settlement
-```
-
-Native baseline only when implemented:
-
-- Rust;
-- Tokio;
-- Axum where HTTP/WebSocket/admin/health endpoints are useful;
-- Protobuf + prost for explicit protocols;
-- tracing/tracing-subscriber;
-- Docker/Compose.
-
-Game simulation remains game-owned.
-
-## 11. Error rules
-
-- keep stable typed game/domain errors where useful;
-- reducer entry points convert failures into stable client-visible results;
-- never expose internal persistence/runtime details;
-- use `thiserror` when reusable typed Rust errors justify it;
-- use `anyhow` mainly at tool/bootstrap boundaries;
-- do not add an error-adapter hierarchy solely to preserve layering.
-
-## 12. Testing
-
-Game SpacetimeDB tests should focus on real behavior:
-
-- reducer authorization/preconditions;
-- table state transitions;
-- economy/settlement atomicity;
-- scheduled reducer behavior;
-- idempotency where required;
-- deterministic GameCore behavior;
-- important binding/protocol compatibility.
-
-Framework tests cover only reusable Framework invariants/helpers/tooling.
-
-## 13. Deployment
+## 12. Deployment
 
 Initial topology:
 
 ```text
 Internet
    |
-OpenResty / Nginx (when needed)
+OpenResty / Nginx (optional)
    |
-SpacetimeDB
+Go / Pitaya standalone
    |
-   +-- Native Rust Battle/World Server (only when needed)
+PostgreSQL
 ```
 
-Self-hosted SpacetimeDB is the preferred current direction. Use the concrete deployment mechanism appropriate to the environment; do not require Kubernetes or a traditional PostgreSQL + Redis application stack by default.
+Scale only when needed:
+
+```text
+LB
+├── Go/Pitaya #1
+├── Go/Pitaya #2
+└── Go/Pitaya #N
+
+PostgreSQL
++ optional Redis/etcd/NATS according to the chosen clustered topology
+```
+
+A Rust GameServer pool is a separate optional scale unit for heavy realtime games.
