@@ -26,6 +26,9 @@ try {
   for (const language of uniqueLanguages) {
     if (!codeTargets.has(language)) throw new Error(`Unsupported Luban language: ${language}`);
   }
+  if (uniqueLanguages.includes("go") && !section.goModule) {
+    throw new Error("Luban Go generation requires luban.goModule in game-tools.json");
+  }
 
   const { configPath } = loadLubanSource(gameRoot, section);
   const lubanDll = resolveLubanDll(gameRoot, section);
@@ -55,6 +58,7 @@ try {
     rmSync(output, { recursive: true, force: true });
     mkdirSync(output, { recursive: true });
     args.push("-c", codeTarget, "-x", `${codeTarget}.outputCodeDir=${output}`);
+    if (language === "go") args.push("-x", `${codeTarget}.lubanGoModule=${section.goModule}`);
   }
   args.push("-d", "bin", "-x", `bin.outputDataDir=${binaryOutput}`);
 
