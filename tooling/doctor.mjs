@@ -93,22 +93,15 @@ function checkBaseCommand(name, args, minimumMajor) {
 
 function checkGo() {
   const version = commandVersion("go", ["version"]);
+  const required = toolchain.server.goVersion;
   if (!version) {
-    add("ERROR", "Go", "go not available on PATH", `Install Go >= ${toolchain.server.goMinimum}.`);
+    add("ERROR", "Go", "go not available on PATH", `Install Go ${required}.`);
     return;
   }
-  const match = version.match(/go(\d+)\.(\d+)/);
-  const required = `${toolchain.server.goMinimum}`.split(".").map(Number);
-  if (!match) {
-    add("ERROR", "Go", version, `Unable to verify Go >= ${toolchain.server.goMinimum}.`);
-    return;
-  }
-  const actualMajor = Number(match[1]);
-  const actualMinor = Number(match[2]);
-  const requiredMajor = required[0] ?? 1;
-  const requiredMinor = required[1] ?? 0;
-  if (actualMajor < requiredMajor || (actualMajor === requiredMajor && actualMinor < requiredMinor)) {
-    add("ERROR", "Go", version, `Framework requires Go >= ${toolchain.server.goMinimum}.`);
+  const match = version.match(/go(\d+\.\d+\.\d+)/);
+  const actual = match?.[1];
+  if (actual !== required) {
+    add("ERROR", "Go", version, `Framework requires Go ${required} exactly.`);
     return;
   }
   add("OK", "Go", version);
@@ -129,9 +122,9 @@ function checkWritableDirectory() {
     const probe = resolve(root, `.doctor-${process.pid}`);
     writeFileSync(probe, "ok");
     rmSync(probe, { force: true });
-    add("OK", "tool home", `${root} (read/write)`);
+    add("OK", "generated-code tool cache", `${root} (read/write)`);
   } catch (error) {
-    add("ERROR", "tool home", `${root}: ${error.message}`, "Set GAME_FRAMEWORK_TOOL_HOME to a writable user-level directory.");
+    add("ERROR", "generated-code tool cache", `${root}: ${error.message}`, "Set GAME_FRAMEWORK_TOOL_HOME to a writable user-level directory.");
   }
 }
 
@@ -178,16 +171,18 @@ function checkInstalledTools() {
     const path = lubanDll();
     const deps = resolve(dirname(path), "Luban.deps.json");
     const content = existsSync(deps) ? readFileSync(deps, "utf8") : "";
-    if (content && !content.includes(`Luban/${toolchain.luban.version}`)) add("ERROR", "Luban", `${path}; version metadata mismatch`, "Re-run Framework installer.");
-    else add("OK", "Luban", `${toolchain.luban.version} @ ${path}`);
+    if (content && !content.includes(`Luban/${toolchain.luban.version}`)) {
+      add("ERROR", "Luban", `${path}; version metadata mismatch`, "Update/restore the game-framework checkout.");
+    } else {
+      add("OK", "Luban", `${toolchain.luban.version} committed @ ${path}`);
+    }
   } catch (error) {
-    add("ERROR", "Luban", error.message, "Run: node framework/tooling/install.mjs");
+    add("ERROR", "Luban", error.message, "Update/restore the game-framework checkout.");
   }
 
   checkNodePackage("@bufbuild/protobuf", toolchain.protobuf.bufbuildProtobuf);
   checkNodePackage("ts-proto", toolchain.protobuf.tsProto);
   checkNodePackage("grpc-tools", toolchain.protobuf.grpcTools);
-  checkNodePackage("7zip-bin", toolchain.protobuf.sevenZipBin);
 
   for (const [label, name] of [["PB protoc", "grpc_tools_node_protoc"], ["ts-proto plugin", "protoc-gen-ts_proto"]]) {
     try { add("OK", label, protobufNodeBin(name)); }
@@ -256,7 +251,7 @@ if (jsonMode) {
   console.log(JSON.stringify({ status: errors === 0 ? "READY" : "NOT_READY", errors, warnings, toolHome: toolHome(), checks: rows }, null, 2));
 } else {
   console.log("Game Framework Doctor");
-  console.log(`Tool home: ${toolHome()}`);
+  console.log(`Generated-code tool cache: ${toolHome()}`);
   console.log("");
   for (const row of rows) {
     console.log(`[${row.level}] ${row.name}: ${row.detail}`);
