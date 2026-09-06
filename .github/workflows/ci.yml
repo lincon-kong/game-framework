@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Framework validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Repository diff
+        run: git diff --check
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.19.0'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Client dependencies
+        run: npm --prefix client ci
+
+      - name: Client build
+        run: npm --prefix client run build
+
+      - name: Tooling syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in tooling/*.mjs tooling/lib/*.mjs; do
+            node --check "$file"
+          done
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.25.x'
+          cache: false
+
+      - name: Server test
+        working-directory: server
+        run: go test ./...
