@@ -54,6 +54,32 @@ jobs:
           go-version: '1.25.x'
           cache: false
 
+      - name: Resolve server dependencies
+        working-directory: server
+        run: go mod tidy
+
+      - name: Upload generated Go module lock
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-go-module-lock
+          path: |
+            server/go.mod
+            server/go.sum
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Go module lock guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          changes="$(git status --porcelain -- server/go.mod server/go.sum)"
+          if [ -n "$changes" ]; then
+            echo "$changes"
+            echo "Run 'go mod tidy' in server and commit go.mod/go.sum."
+            exit 1
+          fi
+
       - name: Server test
         working-directory: server
         run: go test ./...
