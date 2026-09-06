@@ -1,6 +1,8 @@
 module github.com/lincon-kong/game-framework/server
 
-go 1.25.0
+go 1.26.0
+
+toolchain go1.26.7
 
 require github.com/topfreegames/pitaya/v2 v2.11.24
 
