@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -60,10 +61,16 @@ function ensureNodeTools() {
   const bufRuntime = resolve(root, "node_modules", "@bufbuild", "protobuf", "package.json");
   if (existsSync(marker) && existsSync(bufRuntime)) return root;
 
-  mkdirSync(root, { recursive: true });
-  writeFileSync(resolve(root, "package.json"), JSON.stringify({ name: "game-framework-shared-tools", private: true }, null, 2));
-
   const pb = toolchain.protobuf;
+  mkdirSync(root, { recursive: true });
+  writeFileSync(resolve(root, "package.json"), JSON.stringify({
+    name: "game-framework-shared-tools",
+    private: true,
+    allowScripts: {
+      [`grpc-tools@${pb.grpcTools}`]: true,
+    },
+  }, null, 2));
+
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   run(npm, [
     "install",
@@ -80,6 +87,7 @@ function sevenZipExecutable(nodeRoot) {
   const require = createRequire(resolve(nodeRoot, "package.json"));
   const pkg = require("7zip-bin");
   if (!pkg.path7za) throw new Error("7zip-bin did not expose path7za");
+  if (process.platform !== "win32") chmodSync(pkg.path7za, 0o755);
   return pkg.path7za;
 }
 
