@@ -54,6 +54,9 @@ jobs:
           go-version: '1.25.x'
           cache: false
 
+      - name: Shared toolchain install
+        run: node tooling/install.mjs
+
       - name: Resolve server dependencies
         working-directory: server
         run: go mod tidy
