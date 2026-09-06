@@ -7,8 +7,9 @@ on:
       - master
   workflow_dispatch:
 
+# TEMPORARY migration permission: removed after Luban v4.10.2 is vendored.
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -18,11 +19,42 @@ jobs:
   validate:
     name: Framework validation
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - name: Vendor Luban 4.10.2 once
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f tooling/luban/vendor/Luban/Luban.dll ]; then
+            exit 0
+          fi
+
+          command -v 7z >/dev/null
+          rm -rf /tmp/game-framework-luban tooling/luban/vendor
+          mkdir -p /tmp/game-framework-luban tooling/luban/vendor
+          curl --fail --location --silent --show-error \
+            --output /tmp/game-framework-luban/Luban.7z \
+            https://github.com/focus-creative-games/luban/releases/download/v4.10.2/Luban.7z
+          7z x /tmp/game-framework-luban/Luban.7z -o/tmp/game-framework-luban/extracted -y >/dev/null
+          luban_dll="$(find /tmp/game-framework-luban/extracted -type f -name Luban.dll -print -quit)"
+          test -n "$luban_dll"
+          cp -a "$(dirname "$luban_dll")" tooling/luban/vendor/Luban
+          curl --fail --location --silent --show-error \
+            --output tooling/luban/vendor/LICENSE \
+            https://raw.githubusercontent.com/focus-creative-games/luban/v4.10.2/LICENSE
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tooling/luban/vendor
+          git commit -m "chore(tooling): vendor Luban 4.10.2"
+          git push origin "HEAD:${GITHUB_HEAD_REF}"
 
       - name: Repository diff
         run: git diff --check
@@ -44,18 +76,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for file in tooling/*.mjs tooling/lib/*.mjs; do
+          while IFS= read -r -d '' file; do
             node --check "$file"
-          done
+          done < <(find tooling -name '*.mjs' -type f -print0)
 
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
-          go-version: '1.25.x'
+          go-version-file: .go-version
           cache: false
 
-      - name: Shared toolchain install
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Framework generated-code tools
         run: node tooling/install.mjs
+
+      - name: Framework doctor
+        run: node tooling/doctor.mjs
 
       - name: Resolve server dependencies
         working-directory: server
@@ -68,7 +108,7 @@ jobs:
           changes="$(git status --porcelain -- server/go.mod server/go.sum)"
           if [ -n "$changes" ]; then
             echo "$changes"
-            echo "Run 'go mod tidy' in server and commit go.mod/go.sum."
+            echo "Run 'go mod tidy' in server with the Framework-pinned Go version and commit go.mod/go.sum."
             exit 1
           fi
 
