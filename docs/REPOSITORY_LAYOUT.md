@@ -16,6 +16,7 @@ game-framework/
 │   ├── storage/      # PostgreSQL pool, SQL migration runner and tests
 │   ├── account/      # account status, external bindings and historical bootstrap
 │   ├── auth/         # provider verification and verified account resolution
+│   ├── login/        # transactional account/player bootstrap and identity values
 │   ├── player/       # per-realm player identities and versioned data
 │   ├── operation/    # idempotent requests and shared database transactions
 │   ├── pitaya/

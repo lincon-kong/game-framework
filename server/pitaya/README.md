@@ -20,3 +20,5 @@ Rules:
 - a future heavy Rust GameServer is a separate runtime, not a rewrite of the Go commercial backend.
 
 `NewStandaloneBuilder` is intentionally a very small convenience helper. This package must not grow into a second abstraction layer that mirrors the whole Pitaya API.
+
+`NewLoginSessions(builder.SessionPool, service)` installs the trusted login boundary before startup. Login handlers pass the actual Pitaya session and credential to `Login`; business handlers use `Identity(session)` and pass the returned plain Go identity to domain code. Never derive ownership from request IDs or serialized session data. `Clear(session)` is the explicit logout/reuse API; disconnect cleanup is registered on the pool. See [login and trusted session identity](../../docs/SERVER.md#login-and-trusted-session-identity) for transaction, lifecycle and validation contracts.

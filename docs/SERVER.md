@@ -198,6 +198,20 @@ Call `registry.Verify` before opening a database transaction for account resolut
 
 Run `go test ./auth -race -count=1` for verification and client-forgery checks. Run `FRAMEWORK_POSTGRES_TEST=1 go test ./auth -race -count=1 -v` with the PostgreSQL environment for real binding resolution, disabled-account rejection and unbound identity tests; it creates and removes a disposable database and requires `CREATEDB`.
 
+### Login and trusted session identity
+
+`server/login/` composes authentication, account resolution/creation and per-realm player bootstrap. Apply `player.Migrate` before use. Construct `login.New(pool, providers, realm, allowCreate, initial)` with server-owned policy: explicitly enabled providers, a stable realm, whether unbound verified identities may create accounts, and an initial-data callback receiving trusted account ID and realm. The callback returns game-owned `player.Data`, supports concurrent calls, and must not perform external side effects or open independent transactions.
+
+`Bootstrap(ctx, provider, credential)` verifies credentials before opening one read-committed transaction. A transaction-scoped advisory lock serializes the verified provider/external-ID tuple; an account row lock serializes player creation across different bindings of the same account and orders status updates. Database uniqueness constraints remain authoritative. Account, identity binding and player creation commit together; callback/database/commit failures return no trusted identity. Missing bindings with creation disabled return `account.ErrNotFound`. No automatic retries are performed. Supply a bounded context.
+
+The result contains the persisted player and `SessionIdentity{AccountID, PlayerID, Realm}`. Different realms have different players under the same account. Existing players retain their data; initial data is requested only when a player is missing. A failed runtime attachment after database commit leaves valid durable bootstrap state, which the next login reuses.
+
+At the standalone Pitaya frontend boundary, construct `pitaya.NewLoginSessions(builder.SessionPool, service)` once before starting the app. In a login handler, extract the actual session with the app's `GetSessionFromCtx(ctx)` and call `Login(ctx, session, provider, credential)`. The manager stores identity privately, outside serialized session/handshake/request data. Business handlers call `Identity(session)` and pass that value into ordinary domain functions; client-supplied account/player IDs never select the authorized player. Continue enforcing ownership in storage operations such as `player.Save`.
+
+Unauthenticated, foreign-pool, backend and closed sessions cannot obtain identity. Failed reauthentication clears previous identity; simultaneous login attempts on one session are rejected. The registered pool close callback clears identity and invalidates pending login completion. Explicit logout/session reuse calls `Clear(session)` first; Pitaya's raw `Session.Clear()` alone is not this logout API. This binding is local to the standalone frontend and imposes no UID binding, multi-device kick policy or cluster identity propagation. Disabling an account blocks subsequent bootstrap; ongoing-session revocation is not implemented.
+
+Run `FRAMEWORK_POSTGRES_TEST=1 go test ./pitaya -race -count=1 -v` with PostgreSQL variables and `CREATEDB` to validate concurrent first creation, replay, realms, rollback, trusted identity and session cleanup against a disposable database and real Pitaya SessionPool objects.
+
 ### Player data foundation
 
 `server/player/` owns `framework_players`. Call `player.Migrate(ctx, pool)` before using the module; it delegates to `account.Migrate` to preserve the historical account/player bootstrap and apply account upgrades. This is opt-in and does not alter a game database merely by opening a connection.
