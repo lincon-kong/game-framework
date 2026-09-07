@@ -195,6 +195,18 @@ The test uses a disposable database and covers migration replay, persisted reads
 
 ## 6. Commercial invariants
 
+### Idempotent database operations
+
+`server/operation/` owns `framework_operations`. Apply its embedded SQL using `operation.Migrate(ctx, pool)` before use. `operation.Execute(ctx, pool, scope, key, request, callback)` owns one PostgreSQL transaction shared by the operation record and all callback writes. Concurrent requests with the same scope/key wait for the first transaction; successful retries return the stored JSON response without invoking the callback again. Reusing a key with different request bytes returns `ErrKeyReused`. Failed operations and invalid callback responses roll back their records and business writes, allowing an explicit retry.
+
+The application constructs `scope` from trusted identity and action information and performs authorization before every call, including replays. Keys identify one logical operation; `request` bytes must represent its effect-determining inputs in a stable encoding. Different JSON whitespace or key order is different input unless the caller canonicalizes it. Results are stored as JSONB, so consumers must interpret JSON values rather than depend on response whitespace or object-key order.
+
+Callbacks return valid JSON and use only the supplied `pgx.Tx` for database mutations. They must propagate errors and must not commit, roll back, start an independent operation transaction, or perform external side effects that PostgreSQL cannot undo. Use player optimistic versions or domain-specific database constraints to coordinate different operation keys; idempotency does not serialize every action for a player. Supply a bounded context; the module does not automatically retry database errors.
+
+Operation records have no automatic expiry or deletion. Removing a record permits its key to execute again, so retention must be decided with each feature's replay requirements. This module records operation identity, request hash, result and time; detailed asset changes belong in the asset ledger.
+
+Run `FRAMEWORK_POSTGRES_TEST=1 go test ./operation -race -count=1 -v` from Framework `server/` with exported PostgreSQL env. The real database test uses player account writes to verify concurrent replay, scope isolation, changed-input rejection, rollback and explicit retry. It creates and removes its own disposable database.
+
 Reusable commercial code should preserve these invariants:
 
 ```text

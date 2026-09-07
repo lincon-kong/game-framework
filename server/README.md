@@ -21,4 +21,6 @@ Current strategy:
 
 `server/player/` provides separate account/player identities, per-realm JSON data, optimistic-concurrency checks and shared-transaction operations. Its schemas are applied explicitly through `player.Migrate`. See [player data foundation](../docs/SERVER.md#player-data-foundation); provider login and session authentication remain outside this storage module.
 
+`server/operation/` provides idempotent database operations whose request records and business writes share one transaction. See [idempotent database operations](../docs/SERVER.md#idempotent-database-operations) for replay, authorization and callback requirements.
+
 Do not create a large empty server skeleton. Add reusable packages after real game code proves the boundary.
