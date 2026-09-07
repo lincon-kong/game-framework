@@ -30,3 +30,5 @@ Current strategy:
 `server/operation/` provides idempotent database operations whose request records and business writes share one transaction. See [idempotent database operations](../docs/SERVER.md#idempotent-database-operations) for replay, authorization and callback requirements.
 
 Do not create a large empty server skeleton. Add reusable packages after real game code proves the boundary.
+
+`server/asset/` provides game-defined Balance/Stack quantities, uniquely owned instances and atomic mutation/ledger writes in caller-owned transactions. See [asset core and ledger](../docs/SERVER.md#asset-core-and-ledger).
