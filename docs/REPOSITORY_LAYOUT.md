@@ -18,6 +18,8 @@ game-framework/
 │   ├── auth/         # provider verification and verified account resolution
 │   ├── login/        # transactional account/player bootstrap and identity values
 │   ├── player/       # per-realm player identities and versioned data
+│   ├── asset/        # quantity/instance ownership and transactional ledger
+│   ├── settlement/   # atomic costs/rewards and replay-safe game callbacks
 │   ├── operation/    # idempotent requests and shared database transactions
 │   ├── pitaya/
 │   │   ├── app.go
