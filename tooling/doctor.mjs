@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { delimiter, dirname, extname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import {
+  frameworkRoot,
   lubanDll,
   protobufGoCodegenExecutable,
   protobufNodeBin,
@@ -22,6 +23,7 @@ import {
 
 const rows = [];
 const jsonMode = process.argv.includes("--json");
+const frameworkOnly = process.argv.includes("--framework");
 
 function add(level, name, detail, fix) {
   rows.push({ level, name, detail, ...(fix ? { fix } : {}) });
@@ -122,6 +124,10 @@ function findRepositoryFile(name, start) {
 }
 
 function checkNode() {
+  if (frameworkOnly) {
+    checkBaseCommand("node", ["--version"]);
+    return;
+  }
   const configPath = findRepositoryFile(".node-version", process.cwd()) ?? findRepositoryFile(".node-version", frameworkRoot);
   const version = commandVersion("node", ["--version"]);
   if (!configPath) {
@@ -142,6 +148,7 @@ function checkNode() {
 }
 
 function checkRust() {
+  if (frameworkOnly) return;
   const configPath = findRepositoryFile("rust-toolchain.toml", process.cwd()) ?? findRepositoryFile("rust-toolchain.toml", frameworkRoot);
   if (!configPath) {
     add("ERROR", "Rust", "rust-toolchain.toml not found", "Run the doctor from a game repository that declares its Rust toolchain.");

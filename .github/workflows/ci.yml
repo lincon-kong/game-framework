@@ -71,7 +71,7 @@ jobs:
         run: node tooling/install.mjs
 
       - name: Framework doctor
-        run: node tooling/doctor.mjs
+        run: node tooling/doctor.mjs --framework
 
       - name: Resolve server dependencies
         working-directory: server
