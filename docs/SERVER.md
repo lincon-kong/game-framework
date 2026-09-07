@@ -170,6 +170,29 @@ FRAMEWORK_POSTGRES_TEST=1 go test ./storage -race -count=1 -run TestPostgresInte
 
 The integration test requires `CREATEDB`. It creates a uniquely named test database and removes only that database afterward. It checks concurrent initialization, repeat execution, upgrades, history edits, transactional DDL rollback, retry after failure and rollback of domain writes. Without the explicit test flag it reports a skip, not database validation.
 
+### Player data foundation
+
+`server/player/` owns `framework_accounts` and `framework_players`. Call `player.Migrate(ctx, pool)` before using the module; its embedded, versioned SQL runs through `storage.Migrate` under `framework.player`. This is opt-in and does not alter a game database merely by opening a connection.
+
+Accounts have stable UUID identities. Players have separate UUID identities and belong to one account and realm, with one player per account/realm pair. Games without server realms supply one stable realm name. Provider login, verified external-identity bindings and Pitaya session authentication are not implemented by this storage module. Never accept the account identity directly from an unverified client request.
+
+All account/player operations accept an existing `pgx.Tx`:
+
+- `CreateAccount` allocates an account identity.
+- `Create` stores initial player data for an existing account and realm.
+- `Load` reads by the authenticated account and realm; missing players return `ErrNotFound`.
+- `Save` checks account ownership and the expected optimistic-concurrency version, then returns the updated record. An unavailable player or stale version returns `ErrConflict` without overwriting state. Propagate this error to the enclosing transaction so related writes roll back.
+
+`Player.Version` is the concurrency revision, initially one and incremented on save. `Player.Data.SchemaVersion` is a separate, positive game-data format version. `Player.Data.Content` must be a JSON object. Games own its fields, initial values and format upgrades; Framework stores them without interpreting gameplay. Account creation, player creation and game-owned writes can commit atomically through the same transaction. Creation does not silently treat duplicate accounts/players as a successful retry; database constraint errors are returned.
+
+Run real player validation from Framework `server/` with exported PostgreSQL env:
+
+```bash
+FRAMEWORK_POSTGRES_TEST=1 go test ./player -race -count=1 -v
+```
+
+The test uses a disposable database and covers migration replay, persisted reads, account isolation, realm uniqueness, JSON/version constraints, concurrent saves and rollback of related writes. It requires `CREATEDB` and removes its own test database afterward.
+
 ## 6. Commercial invariants
 
 Reusable commercial code should preserve these invariants:
