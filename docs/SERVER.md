@@ -235,6 +235,24 @@ FRAMEWORK_POSTGRES_TEST=1 go test ./player -race -count=1 -v
 
 The test uses a disposable database and covers migration replay, persisted reads, account isolation, realm uniqueness, JSON/version constraints, concurrent saves and rollback of related writes. It requires `CREATEDB` and removes its own test database afterward.
 
+### Asset core and ledger
+
+`server/asset/` owns quantity assets (`Balance`, `Stack`), unique `Instance` objects and their durable ledger. Call `asset.Migrate` before serving asset requests; it applies the account/player prerequisites and the `framework.asset` migration namespace. Repeated calls are safe.
+
+Games supply trusted `Definition{AssetID, Kind, MaxQuantity}` values, for example by adapting their Luban configuration. Quantity limits are positive total quantities per player/asset; use `math.MaxInt64` when no smaller limit is needed. Instance definitions require a zero quantity limit. Asset IDs and kinds must remain stable after persistence; changing limits is a game configuration migration responsibility. Stack is a total quantity, without slots or splitting. Framework stores no concrete game assets.
+
+All reads and writes accept a caller-owned `pgx.Tx` and an explicit server-trusted player ID. The handler must obtain that ID from trusted session identity, never from a request's owner field. `Get` returns zero for an unheld quantity asset, and `Has` checks a positive amount without reserving it. `Add`/`Remove` accept positive amounts and return the resulting quantity. Conditional row updates serialize concurrent writes, enforce limits without integer overflow and prevent overspending. `ErrUnavailable` covers insufficient quantity, exceeded limits and persisted kind mismatch. `CreateInstance` allocates a UUID; `LoadInstance` and `RemoveInstance` require its owner and return `ErrNotFound` for missing or foreign objects. Objects have no equip/bind/expiry or game-specific data yet.
+
+Every mutation requires a nonblank server-owned `Audit.Source` and an optional operation/reference string. A data-modifying SQL statement writes both state and its ledger record, so ledger failure cannot leave a successful asset statement behind. The ledger retains player/asset, kind, source, reference and timestamp; quantity records carry before/delta/after, while instance records carry UUID and create/remove action without numeric quantities. Deleted objects retain their ledger history. Read history from `public.framework_asset_ledger`, ordered by `id` for a player's asset; sequence gaps on rollback are expected. Framework APIs never update/delete ledger rows. Runtime database roles should not grant direct asset/ledger writes to untrusted callers.
+
+Return any error to the enclosing transaction owner so the entire business operation rolls back. These primitives do not begin transactions, retry or implement idempotency; an operation that needs replay protection composes them inside `operation.Execute`. No settlement orchestration is included.
+
+Validation uses a disposable real database and requires `CREATEDB`:
+
+```bash
+FRAMEWORK_POSTGRES_TEST=1 go test ./asset -race -count=1 -v
+```
+
 ## 6. Commercial invariants
 
 ### Idempotent database operations
