@@ -6,6 +6,7 @@ import (
 	pitayalib "github.com/topfreegames/pitaya/v2"
 	"github.com/topfreegames/pitaya/v2/acceptor"
 	pitayaconfig "github.com/topfreegames/pitaya/v2/config"
+	"github.com/topfreegames/pitaya/v2/serialize/protobuf"
 )
 
 const PinnedVersion = "v2.11.24"
@@ -32,6 +33,15 @@ func NewStandaloneBuilder(
 		metadata,
 		cfg,
 	)
+}
+
+// NewStandaloneProtobufBuilder uses PB for handler payloads and runtime errors.
+// Pitaya's connection handshake remains its built-in JSON control packet.
+func NewStandaloneProtobufBuilder(isFrontend bool, serverType string, metadata map[string]string, cfg pitayaconfig.PitayaConfig) *pitayalib.Builder {
+	cfg.Handler.Messages.Compression = false
+	builder := NewStandaloneBuilder(isFrontend, serverType, metadata, cfg)
+	builder.Serializer = protobuf.NewSerializer()
+	return builder
 }
 
 // NewStandaloneWebSocket creates the normal local-development/single-node frontend.

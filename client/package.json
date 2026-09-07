@@ -9,7 +9,8 @@
   "typesVersions": { "*": { "event": ["dist/event/index.d.ts"], "log": ["dist/log/index.d.ts"], "package": ["dist/package/index.d.ts"], "router": ["dist/router/index.d.ts"], "timer": ["dist/timer/index.d.ts"], "ui": ["dist/ui/index.d.ts"], "asset": ["dist/asset/index.d.ts"], "network": ["dist/network/index.d.ts"], "storage": ["dist/storage/index.d.ts"], "laya": ["dist/laya/index.d.ts"], "wasm": ["dist/wasm/index.d.ts"], "error": ["dist/error/index.d.ts"], "crash": ["dist/crash/index.d.ts"], "fsm": ["dist/fsm/index.d.ts"], "update": ["dist/update/index.d.ts"], "pool": ["dist/pool/index.d.ts"], "entity": ["dist/entity/index.d.ts"], "module": ["dist/module/index.d.ts"], "perfdog": ["dist/perfdog/index.d.ts"] } },
   "exports": { ".": "./dist/index.js", "./event": "./dist/event/index.js", "./log": "./dist/log/index.js", "./package": "./dist/package/index.js", "./router": "./dist/router/index.js", "./timer": "./dist/timer/index.js", "./ui": "./dist/ui/index.js", "./asset": "./dist/asset/index.js", "./network": "./dist/network/index.js", "./storage": "./dist/storage/index.js", "./laya": { "types": "./dist/laya/index.d.ts", "default": "./dist/laya/index.js" }, "./wasm": "./dist/wasm/index.js", "./error": "./dist/error/index.js", "./crash": "./dist/crash/index.js", "./fsm": "./dist/fsm/index.js", "./update": "./dist/update/index.js", "./pool": "./dist/pool/index.js", "./entity": "./dist/entity/index.js", "./module": "./dist/module/index.js", "./perfdog": "./dist/perfdog/index.js" },
   "scripts": {
-    "build": "tsc --project tsconfig.json"
+    "build": "tsc --project tsconfig.json",
+    "test:network": "npm run build && node --test tests/network.test.cjs"
   },
   "devDependencies": { "typescript": "5.0.4" }
 }

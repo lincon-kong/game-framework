@@ -63,6 +63,12 @@ Both sockets may coexist. Lobby traffic remains low-frequency while the game con
 
 Game-specific auth flows, route names and messages remain in game/application code.
 
+`PitayaClient` in the `network` export provides a standard WebSocket connection to a Protobuf Pitaya server. Each instance owns its socket, handshake deadline, heartbeat, request IDs, pending request deadlines/cancellation and push listeners. Pass generated message codecs to `request`, `notify` and `onPush`. Use the server's `NewStandaloneProtobufBuilder`; it disables message compression and uses PB for runtime errors as well as handler messages. Pitaya's JSON control handshake is unchanged.
+
+The creator owns disposal. `disconnect()` rejects pending work and permits a later explicit `connect()`; `dispose()` also clears listeners and permanently prevents reuse. Reconnection does not restore game authentication or replay requests. Local timeout/abort cannot undo server work; games resolve uncertain mutations through their own idempotency protocol. `onDisconnect` reports the reason. Multiple clients can coexist without shared connection state. The default runtime requires standard `WebSocket`, `TextEncoder` and `TextDecoder`; `socketFactory` permits an equivalent platform socket adapter.
+
+Run `npm --prefix client run test:network` in the Framework repository for focused protocol/lifecycle tests. After building the client, run `FRAMEWORK_NETWORK_TEST=1 go test ./pitaya -run TestWebSocketProtobufIntegration -count=1` from `server` for the real Node WebSocket/Go Protobuf transport test. This transport test uses only test handlers and does not need PostgreSQL.
+
 Recommended game-facing boundary:
 
 ```text
