@@ -21,6 +21,8 @@ Current strategy:
 
 `server/account/` owns stable account identities, active/disabled status and unique external identity bindings. Its transaction-friendly APIs and additive migrations preserve existing account/player data. See [account identity foundation](../docs/SERVER.md#account-identity-foundation).
 
+`server/auth/` provides explicitly configured authentication providers, a development credential provider and verified account resolution with disabled-account rejection. See [authentication provider foundation](../docs/SERVER.md#authentication-provider-foundation).
+
 `server/player/` provides per-realm player identities, JSON data, optimistic-concurrency checks and shared-transaction operations. `player.Migrate` delegates to `account.Migrate` for the historical bootstrap and account upgrades; `player.CreateAccount` remains a deprecated forwarding wrapper. See [player data foundation](../docs/SERVER.md#player-data-foundation); provider login and session authentication remain outside these storage modules.
 
 `server/operation/` provides idempotent database operations whose request records and business writes share one transaction. See [idempotent database operations](../docs/SERVER.md#idempotent-database-operations) for replay, authorization and callback requirements.
