@@ -245,7 +245,7 @@ All reads and writes accept a caller-owned `pgx.Tx` and an explicit server-trust
 
 Every mutation requires a nonblank server-owned `Audit.Source` and an optional operation/reference string. A data-modifying SQL statement writes both state and its ledger record, so ledger failure cannot leave a successful asset statement behind. The ledger retains player/asset, kind, source, reference and timestamp; quantity records carry before/delta/after, while instance records carry UUID and create/remove action without numeric quantities. Deleted objects retain their ledger history. Read history from `public.framework_asset_ledger`, ordered by `id` for a player's asset; sequence gaps on rollback are expected. Framework APIs never update/delete ledger rows. Runtime database roles should not grant direct asset/ledger writes to untrusted callers.
 
-Return any error to the enclosing transaction owner so the entire business operation rolls back. These primitives do not begin transactions, retry or implement idempotency; an operation that needs replay protection composes them inside `operation.Execute`. No settlement orchestration is included.
+Return any error to the enclosing transaction owner so the entire business operation rolls back. These primitives do not begin transactions, retry or implement idempotency; an operation that needs replay protection composes them inside `operation.Execute`. Use `settlement.Execute` for reusable costs/rewards orchestration.
 
 Validation uses a disposable real database and requires `CREATEDB`:
 
@@ -254,6 +254,22 @@ FRAMEWORK_POSTGRES_TEST=1 go test ./asset -race -count=1 -v
 ```
 
 ## 6. Commercial invariants
+
+### Settlement
+
+`server/settlement/` composes `operation.Execute` and Asset in one transaction. Run `asset.Migrate` and `operation.Migrate` before serving; Settlement introduces no schema or dependency. `Request` contains ordered `Costs`/`Rewards` of trusted game-selected definitions and positive amounts. Phase 1 supports Balance and Stack only. Repeated asset IDs must use identical definitions; repeated costs are checked cumulatively without overflow. Costs are checked before mutation, then conditional Asset deductions recheck affordability against concurrent writes. Rewards cannot fund the same settlement's costs.
+
+`Execute(ctx, pool, action, key, request, authorize, callback)` requires a server-selected action and an authorization function that resolves the trusted player ID and authorizes the action on every invocation, including replays. The transport must resolve identity from its trusted session; never return a client-submitted owner ID. Settlement constructs an unambiguous operation scope from player/action and uses action plus scope/key as ledger provenance. Definitions, amounts and callback input must come from validated server policy, not unchecked client economy values.
+
+The request is JSON-marshaled for the existing operation fingerprint. Ordered costs/rewards, complete definitions and `Request.Input` participate in that fingerprint. Nil/empty change lists are equivalent; list order remains significant. Include every effect-determining callback input in `Input`, use stable JSON and version the action when semantics change. The callback receives the same trusted player ID and shared `pgx.Tx`, returns valid JSON, and must not manage transactions or perform external side effects. With no callback the stored result is `{}`. Successful replay returns the stored `operation.Result` without asset or callback execution. Changed input returns `operation.ErrKeyReused`.
+
+Any insufficient cost, reward limit failure, ledger error or callback failure rolls back all asset, game and operation writes. There are no automatic retries; different keys rely on Asset constraints and game concurrency controls. Multi-asset operations can encounter PostgreSQL deadlock errors, which propagate and roll back normally. Authorization executes before the operation transaction; policies requiring transactional revalidation must additionally check in the callback.
+
+Real database validation (disposable database, requires `CREATEDB`):
+
+```bash
+FRAMEWORK_POSTGRES_TEST=1 go test ./settlement -race -count=1 -v
+```
 
 ### Idempotent database operations
 

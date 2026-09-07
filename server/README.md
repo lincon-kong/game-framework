@@ -32,3 +32,5 @@ Current strategy:
 Do not create a large empty server skeleton. Add reusable packages after real game code proves the boundary.
 
 `server/asset/` provides game-defined Balance/Stack quantities, uniquely owned instances and atomic mutation/ledger writes in caller-owned transactions. See [asset core and ledger](../docs/SERVER.md#asset-core-and-ledger).
+
+`server/settlement/` composes atomic quantity costs/rewards, Asset ledger writes and optional game transaction callbacks through `operation.Execute`, with authorization before every replay lookup. See [settlement](../docs/SERVER.md#settlement).
