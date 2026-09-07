@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { delimiter, dirname, extname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import {
+  frameworkRoot,
   lubanDll,
   protobufGoCodegenExecutable,
   protobufNodeBin,
@@ -22,13 +23,17 @@ import {
 
 const rows = [];
 const jsonMode = process.argv.includes("--json");
+const frameworkOnly = process.argv.includes("--framework");
 
 function add(level, name, detail, fix) {
   rows.push({ level, name, detail, ...(fix ? { fix } : {}) });
 }
 
 function commandVersion(command, args = ["--version"]) {
-  const result = spawnSync(command, args, { encoding: "utf8", shell: false });
+  const result = spawnSync(command, args, {
+    encoding: "utf8",
+    shell: process.platform === "win32" && command.toLowerCase().endsWith(".cmd"),
+  });
   if (result.error || result.status !== 0) return undefined;
   return `${result.stdout ?? ""}${result.stderr ?? ""}`.trim().split(/\r?\n/)[0];
 }
@@ -93,32 +98,89 @@ function checkBaseCommand(name, args, minimumMajor) {
 
 function checkGo() {
   const version = commandVersion("go", ["version"]);
+  const required = toolchain.server.goVersion;
   if (!version) {
-    add("ERROR", "Go", "go not available on PATH", `Install Go >= ${toolchain.server.goMinimum}.`);
+    add("ERROR", "Go", "go not available on PATH", `Install Go ${required}.`);
     return;
   }
-  const match = version.match(/go(\d+)\.(\d+)/);
-  const required = `${toolchain.server.goMinimum}`.split(".").map(Number);
-  if (!match) {
-    add("ERROR", "Go", version, `Unable to verify Go >= ${toolchain.server.goMinimum}.`);
-    return;
-  }
-  const actualMajor = Number(match[1]);
-  const actualMinor = Number(match[2]);
-  const requiredMajor = required[0] ?? 1;
-  const requiredMinor = required[1] ?? 0;
-  if (actualMajor < requiredMajor || (actualMajor === requiredMajor && actualMinor < requiredMinor)) {
-    add("ERROR", "Go", version, `Framework requires Go >= ${toolchain.server.goMinimum}.`);
+  const match = version.match(/go(\d+\.\d+\.\d+)/);
+  const actual = match?.[1];
+  if (actual !== required) {
+    add("ERROR", "Go", version, `Framework requires Go ${required} exactly.`);
     return;
   }
   add("OK", "Go", version);
 }
 
-function checkOptionalRust() {
+function findRepositoryFile(name, start) {
+  let directory = resolve(start);
+  while (true) {
+    const candidate = resolve(directory, name);
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(directory);
+    if (parent === directory) return undefined;
+    directory = parent;
+  }
+}
+
+function checkNode() {
+  if (frameworkOnly) {
+    checkBaseCommand("node", ["--version"]);
+    return;
+  }
+  const configPath = findRepositoryFile(".node-version", process.cwd()) ?? findRepositoryFile(".node-version", frameworkRoot);
+  const version = commandVersion("node", ["--version"]);
+  if (!configPath) {
+    add("ERROR", "Node", ".node-version not found", "Run the doctor from a game repository that declares its Node version.");
+    return;
+  }
+  if (!version) {
+    add("ERROR", "Node", "node not available on PATH", `Install Node ${readFileSync(configPath, "utf8").trim()}.`);
+    return;
+  }
+  const expected = readFileSync(configPath, "utf8").trim();
+  const actual = version.replace(/^v/, "");
+  if (actual !== expected) {
+    add("ERROR", "Node", `${version}; expected ${expected} from ${configPath}`, `Install Node ${expected}.`);
+    return;
+  }
+  add("OK", "Node", version);
+}
+
+function checkRust() {
+  if (frameworkOnly) return;
+  const configPath = findRepositoryFile("rust-toolchain.toml", process.cwd()) ?? findRepositoryFile("rust-toolchain.toml", frameworkRoot);
+  if (!configPath) {
+    add("ERROR", "Rust", "rust-toolchain.toml not found", "Run the doctor from a game repository that declares its Rust toolchain.");
+    return;
+  }
+
+  const config = readFileSync(configPath, "utf8");
+  const expected = config.match(/^\s*channel\s*=\s*"([^"]+)"\s*$/m)?.[1];
+  if (!expected) {
+    add("ERROR", "Rust", `${configPath} does not declare a toolchain channel`, "Set [toolchain].channel in rust-toolchain.toml.");
+    return;
+  }
+
   const rustc = commandVersion("rustc", ["--version"]);
   const cargo = commandVersion("cargo", ["--version"]);
-  if (rustc && cargo) add("INFO", "optional Rust", `${rustc}; ${cargo}`);
-  else add("INFO", "optional Rust", "not installed; only required by games that own Rust/WASM or a future Rust GameServer");
+  if (!rustc || !cargo) {
+    add("ERROR", "Rust", "rustc or cargo not available on PATH", `Install Rust ${expected} through rustup.`);
+    return;
+  }
+  const actual = rustc.match(/rustc\s+(\d+\.\d+\.\d+)/)?.[1];
+  if (actual !== expected) {
+    add("ERROR", "Rust", `${rustc}; expected ${expected} from ${configPath}`, `Run rustup show from the repository root to install Rust ${expected}.`);
+    return;
+  }
+
+  const targets = spawnSync("rustup", ["target", "list", "--installed"], { encoding: "utf8", shell: false });
+  const installed = targets.status === 0 ? targets.stdout ?? "" : "";
+  if (!installed.split(/\r?\n/).includes("wasm32-unknown-unknown")) {
+    add("ERROR", "Rust target", "wasm32-unknown-unknown not installed", "Run: rustup target add wasm32-unknown-unknown");
+    return;
+  }
+  add("OK", "Rust", `${rustc}; ${cargo}; wasm32-unknown-unknown`);
 }
 
 function checkWritableDirectory() {
@@ -129,9 +191,9 @@ function checkWritableDirectory() {
     const probe = resolve(root, `.doctor-${process.pid}`);
     writeFileSync(probe, "ok");
     rmSync(probe, { force: true });
-    add("OK", "tool home", `${root} (read/write)`);
+    add("OK", "generated-code tool cache", `${root} (read/write)`);
   } catch (error) {
-    add("ERROR", "tool home", `${root}: ${error.message}`, "Set GAME_FRAMEWORK_TOOL_HOME to a writable user-level directory.");
+    add("ERROR", "generated-code tool cache", `${root}: ${error.message}`, "Set GAME_FRAMEWORK_TOOL_HOME to a writable user-level directory.");
   }
 }
 
@@ -178,16 +240,18 @@ function checkInstalledTools() {
     const path = lubanDll();
     const deps = resolve(dirname(path), "Luban.deps.json");
     const content = existsSync(deps) ? readFileSync(deps, "utf8") : "";
-    if (content && !content.includes(`Luban/${toolchain.luban.version}`)) add("ERROR", "Luban", `${path}; version metadata mismatch`, "Re-run Framework installer.");
-    else add("OK", "Luban", `${toolchain.luban.version} @ ${path}`);
+    if (content && !content.includes(`Luban/${toolchain.luban.version}`)) {
+      add("ERROR", "Luban", `${path}; version metadata mismatch`, "Update/restore the game-framework checkout.");
+    } else {
+      add("OK", "Luban", `${toolchain.luban.version} committed @ ${path}`);
+    }
   } catch (error) {
-    add("ERROR", "Luban", error.message, "Run: node framework/tooling/install.mjs");
+    add("ERROR", "Luban", error.message, "Update/restore the game-framework checkout.");
   }
 
   checkNodePackage("@bufbuild/protobuf", toolchain.protobuf.bufbuildProtobuf);
   checkNodePackage("ts-proto", toolchain.protobuf.tsProto);
   checkNodePackage("grpc-tools", toolchain.protobuf.grpcTools);
-  checkNodePackage("7zip-bin", toolchain.protobuf.sevenZipBin);
 
   for (const [label, name] of [["PB protoc", "grpc_tools_node_protoc"], ["ts-proto plugin", "protoc-gen-ts_proto"]]) {
     try { add("OK", label, protobufNodeBin(name)); }
@@ -239,11 +303,11 @@ function checkPathConflicts() {
 
 checkPlatform();
 checkWritableDirectory();
-checkBaseCommand("node", ["--version"], 18);
+checkNode();
 checkBaseCommand(process.platform === "win32" ? "npm.cmd" : "npm", ["--version"]);
 checkGo();
 checkDotnet();
-checkOptionalRust();
+checkRust();
 checkJunctionOrSymlink();
 checkEnvironmentOverrides();
 checkPathConflicts();
@@ -256,7 +320,7 @@ if (jsonMode) {
   console.log(JSON.stringify({ status: errors === 0 ? "READY" : "NOT_READY", errors, warnings, toolHome: toolHome(), checks: rows }, null, 2));
 } else {
   console.log("Game Framework Doctor");
-  console.log(`Tool home: ${toolHome()}`);
+  console.log(`Generated-code tool cache: ${toolHome()}`);
   console.log("");
   for (const row of rows) {
     console.log(`[${row.level}] ${row.name}: ${row.detail}`);

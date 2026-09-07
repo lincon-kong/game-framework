@@ -8,6 +8,7 @@
     "config": "data/luban.conf",
     "target": "all",
     "languages": ["typescript", "go"],
+    "goModule": "github.com/lincon-kong/game-framework/server/luban",
     "outputRoot": "data/generated"
   },
   "protobuf": {

@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Framework validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Repository diff
+        run: git diff --check
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.19.0'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Client dependencies
+        run: npm --prefix client ci
+
+      - name: Client build
+        run: npm --prefix client run build
+
+      - name: Tooling syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' file; do
+            node --check "$file"
+          done < <(find tooling -name '*.mjs' -type f -print0)
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache: false
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Verify committed Luban
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f tooling/luban/vendor/Luban/Luban.dll
+          test -f tooling/luban/vendor/LICENSE
+          test -f server/luban/bytebuf.go
+
+      - name: Framework generated-code tools
+        run: node tooling/install.mjs
+
+      - name: Framework doctor
+        run: node tooling/doctor.mjs --framework
+
+      - name: Resolve server dependencies
+        working-directory: server
+        run: go mod tidy
+
+      - name: Go module lock guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          changes="$(git status --porcelain -- server/go.mod server/go.sum)"
+          if [ -n "$changes" ]; then
+            echo "$changes"
+            echo "Run 'go mod tidy' in server with the Framework-pinned Go version and commit go.mod/go.sum."
+            exit 1
+          fi
+
+      - name: Server test
+        working-directory: server
+        run: go test ./...
