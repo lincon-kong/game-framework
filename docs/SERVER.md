@@ -95,9 +95,80 @@ Typical game-owned data:
 - matchmaking/MMR where durable state is useful;
 - completed match/result records.
 
-Concrete schemas and migrations stay in the game repository until repeated usage proves a generic Framework primitive.
+Framework owns the shared migration history and migrations shipped by its generic modules. Game-specific schemas, migrations and seed data stay in the game repository. Both use the same PostgreSQL pool and can participate in the same `pgx.Tx`.
 
 Prefer explicit transactions and simple SQL/pgx-style access over a large ORM abstraction unless a real project proves otherwise.
+
+### Shared PostgreSQL setup
+
+`server/deploy/compose.yaml` pins the PostgreSQL image. Games reference this file directly and copy only `server/deploy/.env.example` to a private game-root `.env`. Set a unique `COMPOSE_PROJECT_NAME`, database/user names, password and host port for each game/environment. Keep `.env` out of version control.
+
+From a game root after editing `.env`:
+
+```bash
+docker compose --env-file .env -f framework/server/deploy/compose.yaml up -d --wait
+```
+
+The project name scopes the container, network and persistent volume. Published ports bind to loopback only. The volume survives container recreation and ordinary `docker compose down`; `down -v` deletes the database volume. PostgreSQL 18 data is mounted at `/var/lib/postgresql`, as required by the [official image](https://hub.docker.com/_/postgres).
+
+| Variable | Purpose |
+| --- | --- |
+| `COMPOSE_PROJECT_NAME` | Unique Compose deployment identity; changing it selects a different volume |
+| `PGHOST` | Address reachable from the Go process; `127.0.0.1` for local host execution |
+| `PGPORT` | Database connection port and local Compose published port |
+| `PGDATABASE` | Per-game database name |
+| `PGUSER` | Database login name |
+| `PGPASSWORD` | Private password; required, no default |
+| `PGSSLMODE` | Explicit TLS policy; local Compose uses `disable` |
+| `PGCONNECT_TIMEOUT` | Positive connection timeout in seconds |
+
+Compose maps `PGDATABASE`, `PGUSER` and `PGPASSWORD` to the official image's initialization variables. These initialize an empty volume only. Editing env does not rename an existing database/user or rotate its password; use database administration for existing data. Compose provisions a database owner/superuser for local development. Production should provision separate migration and restricted application roles.
+
+For an externally managed PostgreSQL instance, skip Compose and configure the same `PG*` variables. Use `PGSSLMODE=verify-full` and `PGSSLROOTCERT` where a CA file is required. When the game runs on the Compose network, its process uses `PGHOST=postgres` and `PGPORT=5432`; the env template's host port is for processes outside that network.
+
+Compose's `--env-file` does not export variables into a separately launched Go process. Inject them through the deployment environment. For local POSIX shells, a trusted, shell-compatible `.env` can be loaded with:
+
+```bash
+set -a
+. ./.env
+set +a
+```
+
+Single-quote passwords containing `$` or shell metacharacters; do not print the loaded environment or a rendered Compose config containing real credentials.
+
+### Connection and transaction contract
+
+`server/storage.Open(ctx)` reads the required `PG*` variables, creates a `pgxpool.Pool` and pings PostgreSQL before returning. Startup failure returns an error and closes the pool. The startup check has a ten-second overall limit, shortened by the caller's context. The caller owns `pool.Close()` and closes it after request processing stops. Pool construction alone does not verify connectivity; see the [pgxpool documentation](https://pkg.go.dev/github.com/jackc/pgx/v5/pgxpool).
+
+The package does not load `.env` files, register Pitaya handlers or mutate schemas during connection setup. Games call `storage.Open` once at their application composition boundary. Existing applications remain opt-in until they consume database-backed features.
+
+Use `pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error { ... })` for a shared operation. Pass the same transaction to Framework and game writes, return errors to roll back, and do not commit independently inside either module. Ordinary domain code remains independent of Pitaya.
+
+### SQL migrations
+
+`storage.Migrate(ctx, pool, namespace, source)` accepts an `fs.FS` containing the namespace's complete SQL history at its root. Use a stable namespace such as `framework.assets` or `game.profile`. Supply `os.DirFS` during development or an embedded filesystem (with `fs.Sub` when files live below its root) in a deployed binary. Run required module migrations in dependency order before accepting requests, with a bounded context; abort startup on error.
+
+Files use positive numeric versions, for example `001_create_players.sql`. Versions sort numerically and must be unique. Each run verifies the existing history, then applies all pending files and records their SHA-256 checksums in one transaction. A database-wide advisory transaction lock serializes migration runs, including metadata-table creation. Repeated runs are safe; edited, renamed, missing or reordered applied files are rejected. Add higher versions to evolve a schema. There is no automatic downgrade or destructive reset.
+
+The metadata DDL lives in `server/storage/migrations.sql` and is embedded in the package. It creates `public.framework_schema_migrations` with namespace, version, filename, checksum and application time. No player, economy or sample business tables are created by the storage foundation.
+
+Migration SQL is trusted, reviewed application source. It must not issue `BEGIN`, `COMMIT`, `ROLLBACK` or nontransactional commands such as `CREATE INDEX CONCURRENTLY`; it must not change the migration-history table. Large data migrations need an explicit operational plan. Docker initialization scripts are not used for schema evolution because they only run on empty volumes.
+
+### Storage validation
+
+From `server/` in the Framework repository:
+
+```bash
+go test ./storage -race -count=1
+```
+
+For real PostgreSQL validation, start the shared Compose service, export the edited env as above, then run:
+
+```bash
+FRAMEWORK_POSTGRES_TEST=1 go test ./storage -race -count=1 -run TestPostgresIntegration -v
+```
+
+The integration test requires `CREATEDB`. It creates a uniquely named test database and removes only that database afterward. It checks concurrent initialization, repeat execution, upgrades, history edits, transactional DDL rollback, retry after failure and rollback of domain writes. Without the explicit test flag it reports a skip, not database validation.
 
 ## 6. Commercial invariants
 

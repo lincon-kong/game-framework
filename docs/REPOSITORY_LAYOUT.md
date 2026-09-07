@@ -12,6 +12,8 @@ game-framework/
 │   └── README.md
 ├── server/
 │   ├── go.mod
+│   ├── deploy/       # shared PostgreSQL Compose and env template
+│   ├── storage/      # PostgreSQL pool, SQL migration runner and tests
 │   ├── pitaya/
 │   │   ├── app.go
 │   │   └── README.md
@@ -53,7 +55,11 @@ Go runtime dependency authority for the reusable server module. It pins the supp
 
 Thin Pitaya integration helpers/conventions only. Do not hide the entire Pitaya API behind a second framework API, and do not place game business logic here.
 
-Future generic server packages may be added only when proven reusable, for example:
+### `server/storage/` and `server/deploy/`
+
+`storage/` owns PostgreSQL connection setup and transactional SQL migration execution, including the shared migration-history DDL. `deploy/` owns the pinned local PostgreSQL Compose deployment and env template. Games supply private environment values and their own domain migrations; they do not copy this infrastructure source.
+
+Further generic server packages may be added only when proven reusable, for example:
 
 ```text
 server/

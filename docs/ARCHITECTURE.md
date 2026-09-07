@@ -23,7 +23,7 @@ Dependency direction is one-way: games may depend on Framework; Framework must n
 
 Framework may own lifecycle/loading/routing/network/WASM mechanisms, thin Pitaya integration, generic Go server primitives, generic persistence/commercial safety primitives, and shared Luban/Protobuf tooling.
 
-Games own concrete gameplay, entities, player progression, economy values, products, quests, activities, concrete database schemas/migrations, concrete `.proto`, Luban content, UI/assets, and production secrets.
+Games own concrete gameplay, entities, player progression, economy values, products, quests, activities, game-specific database schemas/migrations, concrete `.proto`, Luban content, UI/assets, and production secrets. Framework owns shared PostgreSQL deployment/configuration, migration metadata and migrations belonging to its generic modules.
 
 Rule of thumb:
 
