@@ -188,6 +188,16 @@ Missing accounts or bindings return `account.ErrNotFound`. Other database errors
 
 Run `FRAMEWORK_POSTGRES_TEST=1 go test ./account -race -count=1 -v` with exported PostgreSQL env. Tests use a disposable database and cover legacy migration/data preservation, replay, create/load/status, binding constraints, provider independence, concurrent binding and full rollback. They require `CREATEDB` and remove their test database afterward.
 
+### Authentication provider foundation
+
+`server/auth/` separates credential verification from durable account lookup. Construct `auth.New(map[string]auth.Provider{...})` at startup to explicitly register enabled providers. The registry copies the map and is immutable; provider implementations must support concurrent requests. `Provider.Verify(ctx, Credential)` returns trusted `Identity{Provider, ExternalID}` output. Credentials are opaque strings, never Framework account IDs. Unknown providers return `ErrUnknownProvider`; verification errors propagate with wrapping, and mismatched provider names or blank external IDs return `ErrInvalidIdentity`.
+
+Call `registry.Verify` before opening a database transaction for account resolution. Its `VerifiedIdentity` has private fields: zero values and client JSON cannot construct a valid verified identity. `Identity()` returns a copy for server-owned binding flows. `verified.Resolve(ctx, tx)` calls `account.ResolveIdentity` in the caller's transaction and rejects non-active accounts with `ErrDisabledAccount`; missing bindings return `account.ErrNotFound`. It does not create accounts, persist credentials, manage transactions or attach sessions. Account creation/player bootstrap and trusted session binding are separate composition responsibilities. Resolution checks status in the transaction's database snapshot; it is not continuous session revocation.
+
+`NewDevProvider(name, map[Credential]string)` copies a server-configured credential-to-external-ID mapping. Only exact configured credentials succeed; arbitrary account IDs and external IDs are not credentials. It returns `ErrInvalidCredential` for unknown credentials. This deterministic provider is development/test-only, has no default credentials and is never registered automatically. Do not enable it in production. Production adapters implement the same small provider contract.
+
+Run `go test ./auth -race -count=1` for verification and client-forgery checks. Run `FRAMEWORK_POSTGRES_TEST=1 go test ./auth -race -count=1 -v` with the PostgreSQL environment for real binding resolution, disabled-account rejection and unbound identity tests; it creates and removes a disposable database and requires `CREATEDB`.
+
 ### Player data foundation
 
 `server/player/` owns `framework_players`. Call `player.Migrate(ctx, pool)` before using the module; it delegates to `account.Migrate` to preserve the historical account/player bootstrap and apply account upgrades. This is opt-in and does not alter a game database merely by opening a connection.
