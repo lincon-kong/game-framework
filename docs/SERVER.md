@@ -85,7 +85,7 @@ PostgreSQL is the durable source of truth for business state.
 
 Typical game-owned data:
 
-- platform identity/account mapping;
+- game-specific platform configuration;
 - player profile/progression;
 - currencies/items/entitlements;
 - orders/payment events/refunds;
@@ -170,15 +170,33 @@ FRAMEWORK_POSTGRES_TEST=1 go test ./storage -race -count=1 -run TestPostgresInte
 
 The integration test requires `CREATEDB`. It creates a uniquely named test database and removes only that database afterward. It checks concurrent initialization, repeat execution, upgrades, history edits, transactional DDL rollback, retry after failure and rollback of domain writes. Without the explicit test flag it reports a skip, not database validation.
 
+### Account identity foundation
+
+`server/account/` owns `framework_accounts` and `framework_external_identities`. `Account` has a stable UUID `ID`, `Status` (`Active` or `Disabled`), `CreatedAt` and `UpdatedAt`. External bindings contain `AccountID`, `Provider`, `ExternalID` and `CreatedAt`; the database primary key on `(provider, external_id)` prevents a provider identity from belonging to multiple accounts. Different providers may use the same external ID. A foreign key requires the bound account to exist. Provider names and external IDs are opaque, case-sensitive, nonblank strings; callers own provider naming and trusted verification. Credentials and provider tokens are not stored.
+
+Call `account.Migrate(ctx, pool)` before serving requests. It first replays the original, unchanged `001_players.sql` under its existing `framework.player` namespace, then applies additive changes under `framework.account`. The historical SQL lives in `account/legacy` and still creates both original tables on an empty database. Existing IDs, player foreign keys, migration checksums and creation timestamps are preserved; existing accounts become active with `UpdatedAt` initialized from `CreatedAt`. `player.Migrate` delegates to this entry point for startup compatibility. Repeated calls are safe; never edit the historical SQL.
+
+All account APIs take the caller's `pgx.Tx` and never begin or commit independent transactions:
+
+- `Create` returns a new active account.
+- `Load` reads an account by ID.
+- `SetStatus` updates status and its timestamp, returning the account; invalid statuses fail the database constraint.
+- `BindIdentity` inserts and returns an external binding. Any duplicate, including one for the same account, returns the PostgreSQL uniqueness error; it never overwrites ownership.
+- `ResolveIdentity` returns the account bound to the provider/external ID, including current status.
+
+Missing accounts or bindings return `account.ErrNotFound`. Other database errors propagate to the transaction owner, who must roll back the enclosing operation. Resolution is storage lookup, not authentication: provider verification and rejection of disabled accounts belong to the login boundary. Client-supplied IDs must not be treated as verified identities.
+
+Run `FRAMEWORK_POSTGRES_TEST=1 go test ./account -race -count=1 -v` with exported PostgreSQL env. Tests use a disposable database and cover legacy migration/data preservation, replay, create/load/status, binding constraints, provider independence, concurrent binding and full rollback. They require `CREATEDB` and remove their test database afterward.
+
 ### Player data foundation
 
-`server/player/` owns `framework_accounts` and `framework_players`. Call `player.Migrate(ctx, pool)` before using the module; its embedded, versioned SQL runs through `storage.Migrate` under `framework.player`. This is opt-in and does not alter a game database merely by opening a connection.
+`server/player/` owns `framework_players`. Call `player.Migrate(ctx, pool)` before using the module; it delegates to `account.Migrate` to preserve the historical account/player bootstrap and apply account upgrades. This is opt-in and does not alter a game database merely by opening a connection.
 
-Accounts have stable UUID identities. Players have separate UUID identities and belong to one account and realm, with one player per account/realm pair. Games without server realms supply one stable realm name. Provider login, verified external-identity bindings and Pitaya session authentication are not implemented by this storage module. Never accept the account identity directly from an unverified client request.
+Accounts have stable UUID identities. Players have separate UUID identities and belong to one account and realm, with one player per account/realm pair. Games without server realms supply one stable realm name. External-identity persistence belongs to `account`; provider login and Pitaya session authentication are not implemented by this storage module. Never accept the account identity directly from an unverified client request.
 
 All account/player operations accept an existing `pgx.Tx`:
 
-- `CreateAccount` allocates an account identity.
+- `CreateAccount` is a deprecated forwarding wrapper for `account.Create`, returning only the ID.
 - `Create` stores initial player data for an existing account and realm.
 - `Load` reads by the authenticated account and realm; missing players return `ErrNotFound`.
 - `Save` checks account ownership and the expected optimistic-concurrency version, then returns the updated record. An unavailable player or stale version returns `ErrConflict` without overwriting state. Propagate this error to the enclosing transaction so related writes roll back.

@@ -1,25 +1,20 @@
-// Package player stores accounts and per-realm player data independently of login providers.
+// Package player stores per-realm player data independently of login providers.
 package player
 
 import (
 	"context"
-	"embed"
 	"encoding/json"
 	"errors"
-	"io/fs"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/lincon-kong/game-framework/server/storage"
+	"github.com/lincon-kong/game-framework/server/account"
 )
 
 var (
 	ErrNotFound = errors.New("player not found")
 	ErrConflict = errors.New("player unavailable or version changed")
 )
-
-//go:embed migrations/*.sql
-var migrations embed.FS
 
 // Data contains game-owned JSON and its game-owned format version.
 type Data struct {
@@ -36,19 +31,14 @@ type Player struct {
 }
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
-	source, err := fs.Sub(migrations, "migrations")
-	if err != nil {
-		return err
-	}
-	return storage.Migrate(ctx, pool, "framework.player", source)
+	return account.Migrate(ctx, pool)
 }
 
-// CreateAccount allocates a stable identity. Provider verification and identity
-// binding belong to the authentication boundary, not this storage operation.
+// CreateAccount allocates a stable identity.
+// Deprecated: use account.Create. Account owns identity creation and binding.
 func CreateAccount(ctx context.Context, tx pgx.Tx) (string, error) {
-	var id string
-	err := tx.QueryRow(ctx, "INSERT INTO public.framework_accounts DEFAULT VALUES RETURNING id").Scan(&id)
-	return id, err
+	value, err := account.Create(ctx, tx)
+	return value.ID, err
 }
 
 // Create creates one player per account and realm. Games without realms use a
