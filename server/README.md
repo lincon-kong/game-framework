@@ -19,7 +19,9 @@ Current strategy:
 
 `server/deploy/compose.yaml` is the shared local PostgreSQL deployment. Games copy `server/deploy/.env.example` to their private `.env`, fill in credentials and reference the shared Compose file directly. See [PostgreSQL setup and validation](../docs/SERVER.md#shared-postgresql-setup) for connection variables, persistence behavior, migration integration and tests.
 
-`server/player/` provides separate account/player identities, per-realm JSON data, optimistic-concurrency checks and shared-transaction operations. Its schemas are applied explicitly through `player.Migrate`. See [player data foundation](../docs/SERVER.md#player-data-foundation); provider login and session authentication remain outside this storage module.
+`server/account/` owns stable account identities, active/disabled status and unique external identity bindings. Its transaction-friendly APIs and additive migrations preserve existing account/player data. See [account identity foundation](../docs/SERVER.md#account-identity-foundation).
+
+`server/player/` provides per-realm player identities, JSON data, optimistic-concurrency checks and shared-transaction operations. `player.Migrate` delegates to `account.Migrate` for the historical bootstrap and account upgrades; `player.CreateAccount` remains a deprecated forwarding wrapper. See [player data foundation](../docs/SERVER.md#player-data-foundation); provider login and session authentication remain outside these storage modules.
 
 `server/operation/` provides idempotent database operations whose request records and business writes share one transaction. See [idempotent database operations](../docs/SERVER.md#idempotent-database-operations) for replay, authorization and callback requirements.
 

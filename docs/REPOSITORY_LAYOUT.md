@@ -14,7 +14,8 @@ game-framework/
 │   ├── go.mod
 │   ├── deploy/       # shared PostgreSQL Compose and env template
 │   ├── storage/      # PostgreSQL pool, SQL migration runner and tests
-│   ├── player/       # account/player identities, versioned data and migrations
+│   ├── account/      # account status, external bindings and historical bootstrap
+│   ├── player/       # per-realm player identities and versioned data
 │   ├── operation/    # idempotent requests and shared database transactions
 │   ├── pitaya/
 │   │   ├── app.go
